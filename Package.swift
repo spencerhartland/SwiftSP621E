@@ -5,6 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "SwiftSP621E",
+    platforms: [
+        .iOS(.v17)
+    ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
@@ -17,13 +20,6 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "SwiftSP621E",
-            swiftSettings: [
-                .enableUpcomingFeature("ApproachableConcurrency"),
-            ],
-        ),
-        .testTarget(
-            name: "SwiftSP621ETests",
-            dependencies: ["SwiftSP621E"],
             swiftSettings: [
                 .enableUpcomingFeature("ApproachableConcurrency"),
             ],
