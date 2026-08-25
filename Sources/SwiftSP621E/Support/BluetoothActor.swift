@@ -6,13 +6,14 @@
 //
 
 import Foundation
+import CoreBluetooth
 
 @globalActor public actor BluetoothActor: GlobalActor {
     public static let shared = BluetoothActor()
     
-    nonisolated let queue = DispatchSerialQueue(label: "SwiftSP621E.BluetoothActor")
+    public nonisolated let queue = DispatchSerialQueue(label: "SwiftSP621E.BluetoothActor")
     
-    nonisolated public var unownedExecutor: UnownedSerialExecutor {
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
         queue.asUnownedSerialExecutor()
     }
 }

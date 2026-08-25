@@ -10,62 +10,32 @@ import CoreBluetooth
 
 /// An SP621E SPI LED controller.
 @BluetoothActor
-public final class SP621E: NSObject {
-    private enum Bluetooth {
-        static let frameHeader: UInt8 = 0xA0
-        static var serviceUUID: CBUUID { CBUUID(string: "FFE0") }
-        static var characteristicUUID: CBUUID { CBUUID(string: "FFE1") }
-
-        enum Opcode: UInt8 {
-            case power = 0x62
-            case effect = 0x63
-            case effectSpeed = 0x67
-            case effectLength = 0x68
-            case brightness = 0x66
-            case color = 0x69
-            case queryState = 0x70
-            case rename = 0x61
-        }
-    }
-    
-    /// A mode of operation which determines if the controller displays a solid color or
-    /// one of its built-in dynamic lighting effects.
-    public enum Mode: String {
-        case solidColor = "Solid Color"
-        case dynamicEffect = "Dynamic Effect"
-    }
-    
-    /// A dynamic lighting effect.
-    ///
-    /// The SP621E has 142 built-in effects, each addrerssed by an 8-bit unsigned integer.
-    public enum Effect: UInt8 {
-        case none = 0xBE
-        case rainbow = 0x01
-    }
+public final class SP621E: NSObject, Identifiable {
+    private static let controllerNameCharacterLimit: Int = 10
     
     /// The user-configured state of the controller.
-    public struct State: Equatable {
+    public struct State: Equatable, Sendable {
         /// A boolean value indicating whether or not the LEDs connected to the controller are
         /// receiving power.
-        var isOn: Bool
+        public var isOn: Bool
         /// The brightness value of the LEDs connected to the controller.
-        var brightness: UInt8
+        public var brightness: UInt8
         /// The current `Mode` in which the controller is operating.
-        var mode: Mode
+        public var mode: SP621EMode
         /// The RGB values representing the current color of the LEDs connected to the controller.
-        var rgb: RGB
+        public var rgb: RGB
         /// The index of one of the controller's built-in dynamic lighting effects.
-        var effectIndex: UInt8
+        public var effectIndex: UInt8
         /// The speed at which dynamic lighting effects are displayed by the controller.
-        var effectSpeed: UInt8
+        public var effectSpeed: UInt8
         /// The duration of a single loop in a dynamic lighting effect.
-        var effectLength: UInt8
+        public var effectLength: UInt8
         
-        init(
+        public init(
             isOn: Bool,
             brightness: UInt8,
-            mode: Mode,
-            rgb: RGB,
+            mode: SP621EMode,
+            rgb: (red: UInt8, green: UInt8, blue: UInt8),
             effectIndex: UInt8,
             effectSpeed: UInt8,
             effectLength: UInt8,
@@ -73,13 +43,13 @@ public final class SP621E: NSObject {
             self.isOn = isOn
             self.brightness = brightness
             self.mode = mode
-            self.rgb = rgb
+            self.rgb = RGB(red: rgb.red, green: rgb.green, blue: rgb.blue)
             self.effectIndex = effectIndex
             self.effectSpeed = effectSpeed
             self.effectLength = effectLength
         }
         
-        init?(from bytes: [UInt8]) {
+        internal init?(from bytes: [UInt8]) {
             // Expect length of 20 bytes, header 0x53 0x43, frame index 0x01.
             guard bytes.count == 20, bytes[0] == 0x53, bytes[1] == 0x43, bytes[2] == 0x01 else {
                 return nil
@@ -87,7 +57,7 @@ public final class SP621E: NSObject {
             
             self.isOn = bytes[5] == 0x01
             self.brightness = bytes[9]
-            self.mode = bytes[7] == Effect.none.rawValue ? .solidColor : .dynamicEffect
+            self.mode = bytes[7] == SP621EEffect.none.rawValue ? .solidColor : .dynamicEffect
             self.rgb = RGB(red: bytes[12], green: bytes[13], blue: bytes[14])
             self.effectIndex = bytes[7]
             self.effectSpeed = bytes[10]
@@ -95,38 +65,28 @@ public final class SP621E: NSObject {
         }
     }
     
+    public weak var delegate: SP621EDelegate?
+    
     /// The peripheral associated with the controller.
-    let peripheral: CBPeripheral
+    public let peripheral: CBPeripheral
     
     /// The UUID associated with the controller.
-    var identifier: UUID { peripheral.identifier }
-    
-    // MARK: State callbacks -
-
-    /// Tells the coordinator when there is a change to the connection state of the controller.
-    var onConnectionStateChange: ((ConnectionState) -> Void)?
-    
-    /// Tells the coordinator when the controller reports its state.
-    ///
-    /// The controller reports its state upon connection. The coordinator uses this state to
-    /// synchronize its controllers.
-    var onStateNotification: ((State) -> Void)?
+    public var id: UUID { peripheral.identifier }
     
     /// The connection state of the controller.
-    private(set) var connectionState: ConnectionState = .disconnected {
-        didSet {
-            guard connectionState != oldValue else { return }
-            onConnectionStateChange?(connectionState)
-        }
+    public private(set) var connectionState: ConnectionState = .disconnected {
+        didSet { delegate?.sp621eDidUpdateConnectionState(self) }
     }
     
-    private let queue: DispatchQueue
+    public private(set) var state: SP621E.State? {
+        didSet { delegate?.sp621eDidUpdateState(self) }
+    }
+    
     private var writeableCharacteristic: CBCharacteristic?
     private var pendingWrites: [[UInt8]] = []
 
-    public init(peripheral: CBPeripheral, queue: DispatchQueue) {
+    public init(peripheral: CBPeripheral) {
         self.peripheral = peripheral
-        self.queue = queue
         super.init()
     }
     
@@ -134,7 +94,7 @@ public final class SP621E: NSObject {
     ///
     /// Call from `centralManager(_:didConnect:)` to begin discovering the services and
     /// characteristics of the controller.
-    func connect() {
+    public func connect() {
         peripheral.delegate = self
         peripheral.discoverServices([Bluetooth.serviceUUID])
     }
@@ -143,7 +103,7 @@ public final class SP621E: NSObject {
     ///
     /// Call from `centralManager(_:didFailToConnect:error:)` and
     /// `centralManager(_:didDisconnectPeripheral:error:)` to update state following disconnect.
-    func disconnect() {
+    public func disconnect() {
         writeableCharacteristic = nil
         connectionState = .disconnected
     }
@@ -151,13 +111,13 @@ public final class SP621E: NSObject {
     // MARK: Commands -
     
     /// Request the controller's current state.
-    func queryState() { sendCommand(for: .queryState, withBytes: [0x00]) }
+    public func queryState() { sendCommand(for: .queryState, withBytes: [0x00]) }
     
     /// Power on the LEDs connected to the controller.
-    func powerOn() { sendCommand(for: .power, withBytes: [0x01]) }
+    public func powerOn() { sendCommand(for: .power, withBytes: [0x01]) }
     
     /// Power off the LEDs connected to the controller.
-    func powerOff() { sendCommand(for: .power, withBytes: [0x00]) }
+    public func powerOff() { sendCommand(for: .power, withBytes: [0x00]) }
 
     /// Set the LEDs connected to the controller to the specified RGB color and brightness.
     ///
@@ -166,52 +126,64 @@ public final class SP621E: NSObject {
     ///     - green: The green value of the desired color.
     ///     - blue: The blue value of the desired color.
     ///     - brightness: The desired brightness of the LEDs connected to the controller.
-    func setColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8) {
+    public func setColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8) {
         sendCommand(for: .color, withBytes: [red, green, blue, brightness])
     }
 
     /// Set the brightness of the LEDs connected to the controller.
     ///
     /// - Parameter value: The desired brightness.
-    func setBrightness(_ value: UInt8) { sendCommand(for: .brightness, withBytes: [value]) }
+    public func setBrightness(_ value: UInt8) {
+        sendCommand(for: .brightness, withBytes: [value])
+    }
 
     /// Display a built-in dynamic lighting effect.
     ///
     /// - Parameter effect: The desired effect.
-    func setEffect(_ effect: Effect) { sendCommand(for: .effect, withBytes: [effect.rawValue]) }
+    public func setEffect(_ effect: SP621EEffect) {
+        sendCommand(for: .effect, withBytes: [effect.rawValue])
+    }
     
     /// Set the speed of built-in dynamic lighting effects.
     ///
     /// - Parameter speed: The desired speed at which effects will be displayed.
-    func setEffectSpeed(_ speed: UInt8) { sendCommand(for: .effectSpeed, withBytes: [speed]) }
+    public func setEffectSpeed(_ speed: UInt8) {
+        sendCommand(for: .effectSpeed, withBytes: [speed])
+    }
     
     /// Set the length of built-in dynamic lighting effects.
     ///
     /// - Parameter length: The desired duration of a single loop of an effect.
-    func setEffectLength(_ length: UInt8) { sendCommand(for: .effectLength, withBytes: [length]) }
+    public func setEffectLength(_ length: UInt8) {
+        sendCommand(for: .effectLength, withBytes: [length])
+    }
     
     /// Change the name of the controller.
     ///
     /// - Parameter name: The name the controller advertises over Bluetooth.
-    func rename(to name: String) { sendCommand(for: .rename, withBytes: Array(name.utf8)) }
+    public func rename(to name: String) throws {
+        guard name.count <= Self.controllerNameCharacterLimit else {
+            throw SP621EError.nameExceedsCharacterLimit
+        }
+        sendCommand(for: .rename, withBytes: [UInt8](name.utf8), withResponse: true)
+    }
     
     /// Applies the specified state to the controller.
     ///
     /// - Parameter state: The desired state of the controller.
-    func applyState(_ state: State) {
+    public func applyState(_ state: SP621E.State) {
         sendCommand(for: .brightness, withBytes: [state.brightness], withResponse: true)
 
         switch state.mode {
         case .solidColor:
-            sendCommand(for: .effect, withBytes: [Effect.none.rawValue], withResponse: true)
+            sendCommand(for: .effect, withBytes: [SP621EEffect.none.rawValue], withResponse: true)
             sendCommand(
                 for: .color,
                 withBytes: [state.rgb.red, state.rgb.green, state.rgb.blue, state.brightness],
                 withResponse: true
             )
         case .dynamicEffect:
-            let effect = Effect(rawValue: state.effectIndex) ?? .rainbow
-            sendCommand(for: .effect, withBytes: [effect.rawValue], withResponse: true)
+            sendCommand(for: .effect, withBytes: [state.effectIndex], withResponse: true)
             sendCommand(for: .effectSpeed, withBytes: [state.effectSpeed], withResponse: true)
             sendCommand(for: .effectLength, withBytes: [state.effectLength], withResponse: true)
         }
@@ -221,7 +193,11 @@ public final class SP621E: NSObject {
     
     // MARK: Low-level Communication -
     
-    private func sendCommand(for opcode: Bluetooth.Opcode, withBytes bytes: [UInt8], withResponse: Bool = false) {
+    private func sendCommand(
+        for opcode: Bluetooth.Opcode,
+        withBytes bytes: [UInt8],
+        withResponse: Bool = false
+    ) {
         let commandHeader: [UInt8] = [Bluetooth.frameHeader, opcode.rawValue, UInt8(bytes.count)]
         let command: [UInt8] = commandHeader + bytes
         send(command, withResponse: withResponse)
@@ -256,7 +232,7 @@ public final class SP621E: NSObject {
 // MARK: CBPeripheralDelegate -
 
 extension SP621E: CBPeripheralDelegate {
-    func peripheral(
+    public func peripheral(
         _ peripheral: CBPeripheral,
         didDiscoverServices error: Error?
     ) {
@@ -266,7 +242,7 @@ extension SP621E: CBPeripheralDelegate {
         }
     }
     
-    func peripheral(
+    public func peripheral(
         _ peripheral: CBPeripheral,
         didDiscoverCharacteristicsFor service: CBService,
         error: Error?
@@ -282,7 +258,7 @@ extension SP621E: CBPeripheralDelegate {
         }
     }
     
-    func peripheral(
+    public func peripheral(
         _ peripheral: CBPeripheral,
         didUpdateValueFor characteristic: CBCharacteristic,
         error: Error?
@@ -293,22 +269,19 @@ extension SP621E: CBPeripheralDelegate {
         guard let deviceState = State(from: bytes) else {
             return
         }
-        onStateNotification?(deviceState)
+        self.state = deviceState
     }
     
-    func peripheral(
+    public func peripheral(
         _ peripheral: CBPeripheral,
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        if let error {
-            print("Notify subscription failed: \(error)")
-            return
-        }
+        if let error { return }
         if characteristic.isNotifying { queryState() }
     }
     
-    func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+    public func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
         print("peripheralIsReady — draining \(pendingWrites.count) pending")
         flushPending()
     }

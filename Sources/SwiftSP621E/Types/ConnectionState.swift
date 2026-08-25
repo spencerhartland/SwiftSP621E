@@ -5,7 +5,7 @@
 //  Created by Spencer Hartland on 7/15/26.
 //
 
-public enum ConnectionState: String, Equatable {
+public enum ConnectionState: String, Equatable, Sendable {
     case disconnected = "Disconnected"
     case connecting = "Connecting"
     case connected = "Connected"

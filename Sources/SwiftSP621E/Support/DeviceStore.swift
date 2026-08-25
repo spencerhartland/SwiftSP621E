@@ -6,40 +6,27 @@
 //
 
 import Foundation
-
-/// A bluetooth device.
-public struct Device: Codable, Identifiable, Equatable, Sendable {
-    /// An identifier that can be used to recognize devices that have previously connected.
-    public let id: UUID
-    /// A user-configurable name for the device.
-    public var name: String
-    /// The last known recieved signal strength indicator (RSSI) of the device.
-    public var rssi: Int
-    
-    init(id: UUID, name: String, rssi: Int) {
-        self.id = id
-        self.name = name
-        self.rssi = rssi
-    }
-}
+import os
 
 /// A store of Bluetooth devices.
-public final class DeviceStore {
+internal final class DeviceStore {
+    private static let suiteName: String = "SwiftSP621E"
     private static let savedDevicesKey: String = "SavedDevices"
     
+    private let defaults: UserDefaults = UserDefaults(suiteName: suiteName) ?? .standard
+    
     /// The identifiers of persisted devices.
-    public private(set) var identifiers: [UUID] = []
+    internal private(set) var identifiers: [UUID] = []
     /// A boolean value indicating whether there are no persisted devices.
-    public var isEmpty: Bool { identifiers.isEmpty }
+    internal var isEmpty: Bool { identifiers.isEmpty }
     /// The number of persisted devices.
-    public var deviceCount: Int { identifiers.count }
+    internal var deviceCount: Int { identifiers.count }
     
-    private let defaults: UserDefaults
-    
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    internal init() {
         guard let data = self.defaults.data(forKey: Self.savedDevicesKey),
-              let decodedIdentifiers = try? JSONDecoder().decode([UUID].self, from: data) else {
+              let decodedIdentifiers = try? JSONDecoder().decode([UUID].self, from: data)
+        else {
+            Logger.persistence.info("Could not decode saved devices.")
             return
         }
         self.identifiers = decodedIdentifiers
@@ -48,7 +35,7 @@ public final class DeviceStore {
     /// Persists the specified devices.
     ///
     /// - Parameter devices: The devices to persist.
-    public func save(_ devices: [Device]) {
+    internal func save(_ devices: [Device]) {
         for device in devices { self.identifiers.append(device.id) }
         if let data = try? JSONEncoder().encode(self.identifiers) {
             defaults.set(data, forKey: Self.savedDevicesKey)
@@ -56,7 +43,7 @@ public final class DeviceStore {
     }
     
     /// Forgets all persisted devices.
-    public func forgetDevices() {
+    internal func forgetDevices() {
         self.identifiers = []
         defaults.removeObject(forKey: Self.savedDevicesKey)
     }
