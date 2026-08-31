@@ -11,7 +11,10 @@ import CoreBluetooth
 /// An SP621E SPI LED controller.
 @BluetoothActor
 public final class SP621E: NSObject, Identifiable {
-    private static let controllerNameCharacterLimit: Int = 10
+    public enum Notification: Sendable {
+        case connectionState(id: UUID, state: ConnectionState)
+        case controllerState(id: UUID, state: State?)
+    }
     
     /// The user-configured state of the controller.
     public struct State: Equatable, Sendable {
@@ -65,7 +68,7 @@ public final class SP621E: NSObject, Identifiable {
         }
     }
     
-    public weak var delegate: SP621EDelegate?
+    private static let controllerNameCharacterLimit: Int = 10
     
     /// The peripheral associated with the controller.
     public let peripheral: CBPeripheral
@@ -73,20 +76,23 @@ public final class SP621E: NSObject, Identifiable {
     /// The UUID associated with the controller.
     public var id: UUID { peripheral.identifier }
     
+    private let notificationsContinuation: AsyncStream<Notification>.Continuation
+    
     /// The connection state of the controller.
     public private(set) var connectionState: ConnectionState = .disconnected {
-        didSet { delegate?.sp621eDidUpdateConnectionState(self) }
+        didSet { notificationsContinuation.yield(.connectionState(id: id, state: connectionState)) }
     }
     
     public private(set) var state: SP621E.State? {
-        didSet { delegate?.sp621eDidUpdateState(self) }
+        didSet { notificationsContinuation.yield(.controllerState(id: id, state: state)) }
     }
     
     private var writeableCharacteristic: CBCharacteristic?
     private var pendingWrites: [[UInt8]] = []
 
-    public init(peripheral: CBPeripheral) {
+    public init(peripheral: CBPeripheral, notifications continuation: AsyncStream<Notification>.Continuation) {
         self.peripheral = peripheral
+        self.notificationsContinuation = continuation
         super.init()
     }
     
@@ -277,7 +283,7 @@ extension SP621E: CBPeripheralDelegate {
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        if let error { return }
+        guard error == nil else { return }
         if characteristic.isNotifying { queryState() }
     }
     
