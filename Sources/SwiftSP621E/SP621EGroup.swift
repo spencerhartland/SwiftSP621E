@@ -16,40 +16,41 @@ public final class SP621EGroup: NSObject {
         case connectionState(ConnectionState)
         case isPaired(Bool)
         case controllerState(SP621E.State?)
-        case discoveredDevice(Device)
+        case discoveredController(DiscoveredSP621E)
         case connectedController(id: UUID, name: String)
+        case disconnectedController(id: UUID)
         case renamedController(id: UUID, name: String)
     }
     
-    public enum Command: Sendable {
+    private enum Command: Sendable {
         case connect
         case forget
-        case pair([Device])
-        case power(Bool)
+        case pairControllers([DiscoveredSP621E])
+        case powerOn(Bool)
         case setColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8)
         case setBrightness(UInt8)
         case setEffect(SP621EEffect)
         case setEffectSpeed(UInt8)
         case setEffectLength(UInt8)
+        case identifyController(UUID)
+        case changeControllerName(UUID, String)
     }
-    
-    private static let defaultDeviceName: String = "SP621E"
     
     private var central: CBCentralManager!
     
-    private let deviceStore = DeviceStore()
-    private var expectedControllerCount: Int { deviceStore.deviceCount }
+    private let sp621eStore = SP621EStore()
+    private var expectedControllerCount: Int { sp621eStore.deviceCount }
     private var discoveredControllers: Set<UUID> = []
     private var controllers: [UUID: SP621E] = [:]
     
-    public nonisolated let notifications: AsyncStream<Notification>
+    public let notifications: AsyncStream<Notification>
     private let notificationsContinuation: AsyncStream<Notification>.Continuation
     
-    private nonisolated let controllerNotifications: AsyncStream<SP621E.Notification>
+    private let controllerNotifications: AsyncStream<SP621E.Notification>
     private let controllerNotificationsContinuation: AsyncStream<SP621E.Notification>.Continuation
     
     private let commands: AsyncThrottleSequence<AsyncStream<Command>, ContinuousClock, Command>
-    private nonisolated let commandsContinuation: AsyncStream<Command>.Continuation
+    private let commandsContinuation: AsyncStream<Command>.Continuation
     
     private var primaryControllerID: UUID?
     private var controllerState: SP621E.State?
@@ -89,91 +90,25 @@ public final class SP621EGroup: NSObject {
         }
     }
     
-    private func handleCommand(_ command: Command) {
-        switch command {
-        case .connect:
-            connect()
-        case .forget:
-            forgetDevices()
-        case .pair(let devices):
-            pair(devices)
-        case .power(let isOn):
-            isOn ? powerOn() : powerOff()
-        case .setColor(let red, let green, let blue, let brightness):
-            setColor(red: red, green: green, blue: blue, brightness: brightness)
-        case .setBrightness(let value):
-            setBrightness(value)
-        case .setEffect(let effect):
-            setEffect(effect)
-        case .setEffectSpeed(let speed):
-            setEffectSpeed(speed)
-        case .setEffectLength(let length):
-            setEffectLength(length)
-        }
-    }
-    
-    public nonisolated func sendCommand(_ command: Command) { commandsContinuation.yield(command) }
-    
-    // MARK: Pairing and Connection -
-    
-    /// Connects to controllers.
-    ///
-    /// If paired controllers exist, the coordinator connects directly to them.  Otherwise, the
-    /// coordinator begins searching and publishes a list of discovered devices
-    private func connect() {
-        guard self.central.state == .poweredOn,
-              self.connectionState == .disconnected
-        else {
-            return
-        }
-        
-        if self.deviceStore.isEmpty {
-            self.searchForDevices()
-        } else {
-            self.connectPairedDevices()
-        }
-    }
-    
-    /// Pairs the specified devices.
-    ///
-    /// - Parameter devices: The devices to pair.
-    private func pair(_ devices: [Device]) {
-        guard !devices.isEmpty else { return }
-        self.central.stopScan()
-        self.deviceStore.save(devices)
-        self.connectPairedDevices()
-    }
-    
-    /// Forgets all paired devices.
-    private func forgetDevices() {
-        for controller in self.controllers.values {
-            self.central.cancelPeripheralConnection(controller.peripheral)
-        }
-        self.controllers.removeAll()
-        self.primaryControllerID = nil
-        self.deviceStore.forgetDevices()
-        self.searchForDevices()
-    }
-    
     private func searchForDevices() {
         self.isPaired = false
         self.connectionState = .connecting
         self.discoveredControllers.removeAll()
-        central.scanForPeripherals(withServices: nil)
+        central.scanForPeripherals(withServices: [Bluetooth.advertisedServiceUUID])
     }
     
-    private func connectPairedDevices() {
+    private func connectPairedControllers() {
         self.isPaired = true
         self.connectionState = .connecting
         
-        let knownDevices = central.retrievePeripherals(withIdentifiers: deviceStore.identifiers)
+        let knownDevices = central.retrievePeripherals(withIdentifiers: sp621eStore.identifiers)
         for peripheral in knownDevices {
             guard controllers[peripheral.identifier] == nil else { continue }
             handleConnectedController(peripheral)
             central.connect(peripheral)
         }
         
-        let missingDevices = Set(deviceStore.identifiers).subtracting(controllers.keys)
+        let missingDevices = Set(sp621eStore.identifiers).subtracting(controllers.keys)
         if !missingDevices.isEmpty {
             central.scanForPeripherals(withServices: nil)
         }
@@ -187,10 +122,16 @@ public final class SP621EGroup: NSObject {
         controllers[controller.id] = controller
     }
     
+    private func handleDisconnectedController(with id: UUID) {
+        controllers[id] = nil
+        notificationsContinuation.yield(.disconnectedController(id: id))
+    }
+    
     private func handleControllerNotification(_ notification: SP621E.Notification) {
         switch notification {
-        case .connectionState(_,_):
+        case .connectionState(let id, let state):
             self.updateConnectionState()
+            if state == .disconnected { handleDisconnectedController(with: id) }
         case .controllerState(let id, let state):
             if primaryControllerID == nil {
                 self.primaryControllerID = id
@@ -203,91 +144,9 @@ public final class SP621EGroup: NSObject {
         }
     }
     
-    // MARK: SP621E Commands -
-    
-    /// Power on the LEDs connected to the paired controllers.
-    private func powerOn()  {
-        forEachController { $0.powerOn() }
-    }
-    
-    /// Power off the LEDs connected to the paired controllers.
-    private func powerOff() {
-        forEachController { $0.powerOff() }
-    }
-    
-    /// Set the LEDs connected to the paired controllers to the specified RGB color and brightness.
-    ///
-    /// - Parameters:
-    ///     - red: The red value of the desired color.
-    ///     - green: The green value of the desired color.
-    ///     - blue: The blue value of the desired color.
-    ///     - brightness: The desired brightness of the LEDs connected to the paired controllers.
-    private func setColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8) {
-        forEachController {
-            $0.setColor(red: red, green: green, blue: blue, brightness: brightness)
-        }
-    }
-    
-    /// Set the brightness of the LEDs connected to the paired controllers.
-    ///
-    /// - Parameter value: The desired brightness.
-    private func setBrightness(_ value: UInt8) {
-        forEachController { $0.setBrightness(value) }
-    }
-
-    /// Display a built-in dynamic lighting effect.
-    ///
-    /// - Parameter effect: The desired effect.
-    private func setEffect(_ effect: SP621EEffect) {
-        forEachController { $0.setEffect(effect) }
-    }
-    
-    /// Set the speed of built-in dynamic lighting effects.
-    ///
-    /// - Parameter speed: The desired speed at which effects will be displayed.
-    private func setEffectSpeed(_ speed: UInt8) {
-        forEachController { $0.setEffectSpeed(speed) }
-    }
-    
-    /// Set the length of built-in dynamic lighting effects.
-    ///
-    /// - Parameter length: The desired duration of a single loop of an effect.
-    private func setEffectLength(_ length: UInt8) {
-        forEachController { $0.setEffectLength(length) }
-    }
-    
-    public func identifyController(with id: UUID, isOn: Bool) async throws {
-        guard let controller = controllers[id] else { throw SP621EError.controllerNotFound }
-        for _ in 0...1 {
-            isOn ? controller.powerOff() : controller.powerOn()
-            try await Task.sleep(for: .seconds(0.5))
-            isOn ? controller.powerOn() : controller.powerOff()
-            try await Task.sleep(for: .seconds(0.5))
-        }
-    }
-    
-    /// Change the name of the controller with the specified identifier.
-    ///
-    /// - Parameters:
-    ///     - id: The identifier of the controller to rename.
-    ///     - name: The new name of the controller.
-    public func renameController(with id: UUID, to name: String) async throws {
-        guard let controller = controllers[id] else { throw SP621EError.controllerNotFound }
-        try controller.rename(to: name)
-        notificationsContinuation.yield(.renamedController(id: id, name: name))
-    }
-    
-    private func forEachController(_ action: (SP621E) -> Void) {
-        for controller in controllers.values {
-            action(controller)
-        }
-    }
-    
-    // MARK: State management -
-    
     private func updateConnectionState() {
         let connectedCount = controllers.values.filter { $0.connectionState == .connected }.count
-
+        
         if expectedControllerCount > 0, connectedCount == expectedControllerCount {
             self.connectionState = .connected
         } else if connectedCount == 0 {
@@ -304,6 +163,189 @@ public final class SP621EGroup: NSObject {
     private func sync(_ controller: SP621E) {
         guard let controllerState else { return }
         controller.applyState(controllerState)
+    }
+}
+
+// MARK: Public Methods -
+
+extension SP621EGroup {
+    /// Connects to controllers.
+    public nonisolated func connect() { commandsContinuation.yield(.connect) }
+    
+    /// Pairs the specified controllers.
+    ///
+    /// - Parameter controllers: The controllers to pair.
+    public nonisolated func pairControllers(_ controllers: [DiscoveredSP621E]) {
+        commandsContinuation.yield(.pairControllers(controllers))
+    }
+    
+    /// Forgets all paired controllers.
+    public nonisolated func forgetControllers() { commandsContinuation.yield(.forget) }
+    
+    /// Power on the LEDs connected to the paired controllers.
+    public nonisolated func powerOn()  { commandsContinuation.yield(.powerOn(true)) }
+    
+    /// Power off the LEDs connected to the paired controllers.
+    public nonisolated func powerOff() { commandsContinuation.yield(.powerOn(false)) }
+    
+    /// Set the LEDs connected to the paired controllers to the specified RGB color and brightness.
+    ///
+    /// - Parameters:
+    ///     - red: The red value of the desired color.
+    ///     - green: The green value of the desired color.
+    ///     - blue: The blue value of the desired color.
+    ///     - brightness: The desired brightness of the LEDs connected to the paired controllers.
+    public nonisolated func setColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8) {
+        commandsContinuation.yield(
+            .setColor(red: red, green: green, blue: blue, brightness: brightness)
+        )
+    }
+    
+    /// Set the brightness of the LEDs connected to the paired controllers.
+    ///
+    /// - Parameter value: The desired brightness.
+    public nonisolated func setBrightness(_ value: UInt8) {
+        commandsContinuation.yield(.setBrightness(value))
+    }
+
+    /// Display a built-in dynamic lighting effect.
+    ///
+    /// - Parameter effect: The desired effect.
+    public nonisolated func setEffect(_ effect: SP621EEffect) {
+        commandsContinuation.yield(.setEffect(effect))
+    }
+    
+    /// Set the speed of built-in dynamic lighting effects.
+    ///
+    /// - Parameter speed: The desired speed at which effects will be displayed.
+    public nonisolated func setEffectSpeed(_ speed: UInt8) {
+        commandsContinuation.yield(.setEffectSpeed(speed))
+    }
+    
+    /// Set the length of built-in dynamic lighting effects.
+    ///
+    /// - Parameter length: The desired duration of a single loop of an effect.
+    public nonisolated func setEffectLength(_ length: UInt8) {
+        commandsContinuation.yield(.setEffectLength(length))
+    }
+    
+    public nonisolated func identifyController(with id: UUID) {
+        commandsContinuation.yield(.identifyController(id))
+    }
+    
+    public nonisolated func changeControllerName(id: UUID, name: String) {
+        commandsContinuation.yield(.changeControllerName(id, name))
+    }
+}
+
+// MARK: Command Handling -
+
+extension SP621EGroup {
+    private func forEachController(_ action: (SP621E) -> Void) {
+        for controller in controllers.values {
+            action(controller)
+        }
+    }
+    
+    private func handleCommand(_ command: Command) {
+        switch command {
+        case .connect:
+            handleConnect()
+        case .forget:
+            handleForget()
+        case .pairControllers(let controllers):
+            handlePairingControllers(controllers)
+        case .powerOn(let isOn):
+            handlePowerOn(isOn)
+        case .setColor(let red, let green, let blue, let brightness):
+            handleSetColor(red: red, green: green, blue: blue, brightness: brightness)
+        case .setBrightness(let value):
+            handleSetBrightness(value)
+        case .setEffect(let effect):
+            handleSetEffect(effect)
+        case .setEffectSpeed(let speed):
+            handleSetEffectSpeed(speed)
+        case .setEffectLength(let length):
+            handleSetEffectLength(length)
+        case .identifyController(let id):
+            handleIdentifyController(with: id)
+        case .changeControllerName(let id, let name):
+            handleNameChange(for: id, name: name)
+        }
+    }
+    
+    private func handleConnect() {
+        guard self.central.state == .poweredOn,
+              self.connectionState == .disconnected
+        else {
+            return
+        }
+        
+        if self.sp621eStore.isEmpty {
+            Logger.bluetooth.info("Searching for devices...")
+            self.searchForDevices()
+        } else {
+            Logger.bluetooth.info("Connecting paired devices...")
+            self.connectPairedControllers()
+        }
+    }
+    
+    private func handleForget() {
+        for controller in self.controllers.values {
+            self.central.cancelPeripheralConnection(controller.peripheral)
+        }
+        self.controllers.removeAll()
+        self.primaryControllerID = nil
+        self.sp621eStore.forgetControllers()
+        self.searchForDevices()
+    }
+    
+    private func handlePairingControllers(_ controllers: [DiscoveredSP621E]) {
+        guard !controllers.isEmpty else { return }
+        self.central.stopScan()
+        self.sp621eStore.saveControllers(controllers)
+        self.connectPairedControllers()
+    }
+    
+    private func handlePowerOn(_ isOn: Bool) {
+        if isOn {
+            forEachController { $0.powerOn() }
+        } else {
+            forEachController { $0.powerOff() }
+        }
+    }
+    
+    private func handleSetColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8) {
+        forEachController {
+            $0.setColor(red: red, green: green, blue: blue, brightness: brightness)
+        }
+    }
+    
+    private func handleSetBrightness(_ value: UInt8) {
+        forEachController { $0.setBrightness(value) }
+    }
+    
+    private func handleSetEffect(_ effect: SP621EEffect) {
+        forEachController { $0.setEffect(effect) }
+    }
+    
+    private func handleSetEffectSpeed(_ speed: UInt8) {
+        forEachController { $0.setEffectSpeed(speed) }
+    }
+    
+    private func handleSetEffectLength(_ length: UInt8) {
+        forEachController { $0.setEffectLength(length) }
+    }
+    
+    private func handleIdentifyController(with id: UUID) {
+        guard let controller = controllers[id] else { return }
+        controller.identify()
+    }
+    
+    private func handleNameChange(for id: UUID, name: String) {
+        guard let controller = controllers[id] else { return }
+        try? controller.changeName(to: name)
+        notificationsContinuation.yield(.renamedController(id: id, name: name))
     }
 }
 
@@ -325,35 +367,38 @@ extension SP621EGroup: CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
+        Logger.bluetooth.info("centralManager didDiscover called.")
         let mfgPrefixLength = Bluetooth.manufacturerPrefix.count
         
         guard let mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
               mfgData.count >= mfgPrefixLength,
               mfgData.prefix(mfgPrefixLength).elementsEqual(Bluetooth.manufacturerPrefix)
         else {
+            Logger.bluetooth.error("mfg data does not match!")
             return
         }
         
         if isPaired {
-            guard deviceStore.identifiers.contains(peripheral.identifier),
+            guard sp621eStore.identifiers.contains(peripheral.identifier),
                   controllers[peripheral.identifier] == nil else {
                 return
             }
             handleConnectedController(peripheral)
             central.connect(peripheral)
             
-            let allDevicesConnected = Set(deviceStore.identifiers).isSubset(of: controllers.keys)
+            let allDevicesConnected = Set(sp621eStore.identifiers).isSubset(of: controllers.keys)
             if allDevicesConnected { central.stopScan() }
         } else {
             guard !discoveredControllers.contains(peripheral.identifier) else { return }
             discoveredControllers.insert(peripheral.identifier)
             
-            let device = Device(
+            let controller = DiscoveredSP621E(
                 id: peripheral.identifier,
-                name: peripheral.name ?? Self.defaultDeviceName,
+                name: peripheral.name ?? SP621E.defaultName,
                 rssi: RSSI.intValue
             )
-            notificationsContinuation.yield(.discoveredDevice(device))
+            Logger.bluetooth.info("centralManager didDiscover yielding discovered controller...")
+            notificationsContinuation.yield(.discoveredController(controller))
         }
     }
     
@@ -361,12 +406,16 @@ extension SP621EGroup: CBCentralManagerDelegate {
         _ central: CBCentralManager,
         didConnect peripheral: CBPeripheral
     ) {
+        if controllers[peripheral.identifier] == nil {
+            handleConnectedController(peripheral)
+        }
+        
         guard let controller = controllers[peripheral.identifier] else { return }
         controller.connect()
         
-        let id = controller.id
-        let name = controller.peripheral.name ?? Self.defaultDeviceName
-        notificationsContinuation.yield(.connectedController(id: id, name: name))
+        notificationsContinuation.yield(
+            .connectedController(id: controller.id, name: controller.name)
+        )
     }
 
     public func centralManager(
@@ -390,7 +439,7 @@ extension SP621EGroup: CBCentralManagerDelegate {
         controllers[peripheral.identifier]?.disconnect()
         updateConnectionState()
         
-        if isPaired, deviceStore.identifiers.contains(peripheral.identifier) {
+        if isPaired, sp621eStore.identifiers.contains(peripheral.identifier) {
             central.connect(peripheral)
         }
     }

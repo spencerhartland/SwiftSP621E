@@ -7,11 +7,11 @@
 
 import Foundation
 
-/// A bluetooth device.
-public struct Device: Codable, Identifiable, Equatable, Sendable, Hashable {
-    /// An identifier that can be used to recognize devices that have previously connected.
+/// A discovered, but not connected, SP621E SPI LED controller.
+public struct DiscoveredSP621E: Codable, Identifiable, Equatable, Sendable, Hashable {
+    /// An identifier that can be used to recognize controllers that have previously connected.
     public let id: UUID
-    /// A user-configurable name for the device.
+    /// A user-configurable name for the controller.
     public var name: String
     /// The last known recieved signal strength indicator (RSSI) of the device.
     public var rssi: Int
