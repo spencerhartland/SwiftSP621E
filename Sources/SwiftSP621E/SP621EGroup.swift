@@ -32,6 +32,7 @@ public final class SP621EGroup: NSObject {
         case setEffect(SP621EEffect)
         case setEffectSpeed(UInt8)
         case setEffectLength(UInt8)
+        case setAudioSensitivity(UInt8)
         case identifyController(UUID)
         case changeControllerName(UUID, String)
     }
@@ -52,6 +53,9 @@ public final class SP621EGroup: NSObject {
     private let commands: AsyncThrottleSequence<AsyncStream<Command>, ContinuousClock, Command>
     private let commandsContinuation: AsyncStream<Command>.Continuation
     
+    private let audioFrames: AsyncStream<[UInt8]>
+    private let audioFramesContinuation: AsyncStream<[UInt8]>.Continuation
+    
     private var primaryControllerID: UUID?
     private var controllerState: SP621E.State?
     
@@ -66,6 +70,7 @@ public final class SP621EGroup: NSObject {
     public nonisolated override init() {
         (self.notifications, self.notificationsContinuation) = AsyncStream.makeStream()
         (self.controllerNotifications, self.controllerNotificationsContinuation) = AsyncStream.makeStream()
+        (self.audioFrames, self.audioFramesContinuation) = AsyncStream.makeStream()
         
         let (stream, continuation) = AsyncStream<Command>.makeStream()
         self.commands = stream.throttle(for: .milliseconds(80))
@@ -86,7 +91,12 @@ public final class SP621EGroup: NSObject {
                     await handleCommand(command)
                 }
             }()
-            _ = await (commandsTask, controllerNotificationsTask)
+            async let audioTask: Void = {
+                for await frame in audioFrames {
+                    await handleAudioFrame(frame)
+                }
+            }()
+            _ = await (controllerNotificationsTask, commandsTask, audioTask)
         }
     }
     
@@ -164,6 +174,12 @@ public final class SP621EGroup: NSObject {
         guard let controllerState else { return }
         controller.applyState(controllerState)
     }
+    
+    private func forEachController(_ action: (SP621E) -> Void) {
+        for controller in controllers.values {
+            action(controller)
+        }
+    }
 }
 
 // MARK: Public Methods -
@@ -229,6 +245,10 @@ extension SP621EGroup {
         commandsContinuation.yield(.setEffectLength(length))
     }
     
+    public nonisolated func setAudioSensitivity(_ sensitivity: UInt8) {
+        commandsContinuation.yield(.setAudioSensitivity(sensitivity))
+    }
+    
     public nonisolated func identifyController(with id: UUID) {
         commandsContinuation.yield(.identifyController(id))
     }
@@ -236,17 +256,15 @@ extension SP621EGroup {
     public nonisolated func changeControllerName(id: UUID, name: String) {
         commandsContinuation.yield(.changeControllerName(id, name))
     }
+    
+    public nonisolated func sendAudioFrame(_ frame: [UInt8]) {
+        audioFramesContinuation.yield(frame)
+    }
 }
 
 // MARK: Command Handling -
 
 extension SP621EGroup {
-    private func forEachController(_ action: (SP621E) -> Void) {
-        for controller in controllers.values {
-            action(controller)
-        }
-    }
-    
     private func handleCommand(_ command: Command) {
         switch command {
         case .connect:
@@ -267,6 +285,8 @@ extension SP621EGroup {
             handleSetEffectSpeed(speed)
         case .setEffectLength(let length):
             handleSetEffectLength(length)
+        case .setAudioSensitivity(let sensitivity):
+            handleSetAudioSensitivity(sensitivity)
         case .identifyController(let id):
             handleIdentifyController(with: id)
         case .changeControllerName(let id, let name):
@@ -337,6 +357,10 @@ extension SP621EGroup {
         forEachController { $0.setEffectLength(length) }
     }
     
+    private func handleSetAudioSensitivity(_ sensitivty: UInt8) {
+        forEachController { $0.setAudioSensitivity(sensitivty) }
+    }
+    
     private func handleIdentifyController(with id: UUID) {
         guard let controller = controllers[id] else { return }
         controller.identify()
@@ -346,6 +370,10 @@ extension SP621EGroup {
         guard let controller = controllers[id] else { return }
         try? controller.changeName(to: name)
         notificationsContinuation.yield(.renamedController(id: id, name: name))
+    }
+    
+    private func handleAudioFrame(_ frame: [UInt8]) {
+        forEachController { $0.sendAudioFrame(frame) }
     }
 }
 

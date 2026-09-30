@@ -10,10 +10,8 @@ import os
 
 /// A store of Bluetooth devices.
 internal final class SP621EStore {
-    private static let suiteName: String = "SwiftSP621E"
     private static let savedControllersKey: String = "SavedControllers"
-    
-    private let defaults: UserDefaults = UserDefaults(suiteName: suiteName) ?? .standard
+    private let defaults: UserDefaults = UserDefaults.shared
     
     /// The identifiers of persisted devices.
     internal private(set) var identifiers: [UUID] = []
@@ -29,6 +27,7 @@ internal final class SP621EStore {
             Logger.persistence.info("Could not decode saved controllers.")
             return
         }
+        
         self.identifiers = decodedIdentifiers
     }
     

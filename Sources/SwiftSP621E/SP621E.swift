@@ -26,6 +26,7 @@ public final class SP621E: NSObject, Identifiable, Sendable {
         case setEffect(SP621EEffect)
         case setEffectSpeed(UInt8)
         case setEffectLength(UInt8)
+        case setAudioSensitivity(UInt8)
         case identify
         case changeName(String)
         case applyState(SP621E.State)
@@ -48,6 +49,8 @@ public final class SP621E: NSObject, Identifiable, Sendable {
         public var effectSpeed: UInt8
         /// The duration of a single loop in a dynamic lighting effect.
         public var effectLength: UInt8
+        /// The sensitivity with which audio effects will react to audio levels.
+        public var audioSensitivity: UInt8
         
         public init(
             isOn: Bool,
@@ -57,6 +60,7 @@ public final class SP621E: NSObject, Identifiable, Sendable {
             effectID: UInt8,
             effectSpeed: UInt8,
             effectLength: UInt8,
+            audioSensitivity: UInt8,
         ) {
             self.isOn = isOn
             self.brightness = brightness
@@ -65,6 +69,7 @@ public final class SP621E: NSObject, Identifiable, Sendable {
             self.effectID = effectID
             self.effectSpeed = effectSpeed
             self.effectLength = effectLength
+            self.audioSensitivity = audioSensitivity
         }
         
         internal init?(from bytes: [UInt8]) {
@@ -75,11 +80,12 @@ public final class SP621E: NSObject, Identifiable, Sendable {
             
             self.isOn = bytes[5] == 0x01
             self.brightness = bytes[9]
-            self.mode = bytes[7] == SP621EEffect.none.id ? .solidColor : .dynamicEffect
+            self.mode = SP621EMode(from: bytes[7]) ?? .solidColor
             self.rgb = RGB(red: bytes[12], green: bytes[13], blue: bytes[14])
             self.effectID = bytes[7]
             self.effectSpeed = bytes[10]
             self.effectLength = bytes[11]
+            self.audioSensitivity = bytes[16]
         }
     }
     
@@ -87,11 +93,15 @@ public final class SP621E: NSObject, Identifiable, Sendable {
     public nonisolated static let controllerNameCharacterLimit: Int = 10
     public nonisolated static let effectSpeedRange: ClosedRange<Double> = 1...10
     public nonisolated static let effectLengthRange: ClosedRange<Double> = 1...150
+    public nonisolated static let audioSensitivityRange: ClosedRange<Double> = 1...16
     
     private let notificationsContinuation: AsyncStream<Notification>.Continuation
     
     private let commands: AsyncStream<Command>
     private let commandsContinuation: AsyncStream<Command>.Continuation
+    
+    private let audioFrames: AsyncStream<[UInt8]>
+    private let audioFramesContinuation: AsyncStream<[UInt8]>.Continuation
     
     /// The peripheral associated with the controller.
     public let peripheral: CBPeripheral
@@ -126,13 +136,22 @@ public final class SP621E: NSObject, Identifiable, Sendable {
         
         self.notificationsContinuation = continuation
         (self.commands, self.commandsContinuation) = AsyncStream.makeStream()
+        (self.audioFrames, self.audioFramesContinuation) = AsyncStream.makeStream()
         
         super.init()
         
         Task { @BluetoothActor in
-            for await command in commands {
-                handleCommand(command)
-            }
+            async let commandTask: Void = {
+                for await command in commands {
+                    await handleCommand(command)
+                }
+            }()
+            async let audioFrameTask: Void = {
+                for await frame in audioFrames {
+                    await handleSendAudioFrame(frame)
+                }
+            }()
+            _ = await (commandTask, audioFrameTask)
         }
     }
     
@@ -141,19 +160,25 @@ public final class SP621E: NSObject, Identifiable, Sendable {
     private func sendCommand(
         for opcode: Bluetooth.Opcode,
         withBytes bytes: [UInt8],
-        withResponse: Bool = false
+        withResponse: Bool = false,
+        queuingIfNeeded shouldQueue: Bool = true,
     ) {
         let byteCount = UInt8(bytes.count)
         let commandHeader: [UInt8] = [Bluetooth.frameHeader, opcode.rawValue, byteCount]
         let command: [UInt8] = commandHeader + bytes
-        send(command, withResponse: withResponse)
+        send(command, withResponse: withResponse, queuingIfNeeded: shouldQueue)
     }
     
-    private func send(_ bytes: [UInt8], withResponse: Bool = false) {
+    private func send(
+        _ bytes: [UInt8],
+        withResponse: Bool = false,
+        queuingIfNeeded shouldQueue: Bool = true,
+    ) {
         guard let writeableCharacteristic else {
-            self.pendingWrites.append(bytes)
+            if shouldQueue { self.pendingWrites.append(bytes) }
             return
         }
+        
         let type: CBCharacteristicWriteType = withResponse ? .withResponse : .withoutResponse
         if withResponse || self.peripheral.canSendWriteWithoutResponse {
             self.peripheral.writeValue(
@@ -162,7 +187,7 @@ public final class SP621E: NSObject, Identifiable, Sendable {
                 type: type
             )
         } else {
-            self.pendingWrites.append(bytes)
+            if shouldQueue { self.pendingWrites.append(bytes) }
         }
     }
 
@@ -291,6 +316,10 @@ extension SP621E {
         commandsContinuation.yield(.setEffectLength(length))
     }
     
+    public nonisolated func setAudioSensitivity(_ sensitivity: UInt8) {
+        commandsContinuation.yield(.setAudioSensitivity(sensitivity))
+    }
+    
     /// 
     public nonisolated func identify() { commandsContinuation.yield(.identify) }
     
@@ -309,6 +338,10 @@ extension SP621E {
     /// - Parameter state: The desired state of the controller.
     public nonisolated func applyState(_ state: SP621E.State) {
         commandsContinuation.yield(.applyState(state))
+    }
+    
+    public nonisolated func sendAudioFrame(_ frame: [UInt8]) {
+        audioFramesContinuation.yield(frame)
     }
 }
 
@@ -335,6 +368,8 @@ extension SP621E {
             handleSetEffectSpeed(speed)
         case .setEffectLength(let length):
             handleSetEffectLength(length)
+        case .setAudioSensitivity(let sensitivity):
+            handleSetAudioSensitivity(sensitivity)
         case .identify:
             handleIdentify()
         case .changeName(let newName):
@@ -358,30 +393,34 @@ extension SP621E {
     
     private func handlePowerOn(_ isOn: Bool) {
         if isOn {
-            sendCommand(for: .power, withBytes: [0x01])
+            sendCommand(for: .power, withBytes: [0x01], withResponse: true)
         } else {
-            sendCommand(for: .power, withBytes: [0x00])
+            sendCommand(for: .power, withBytes: [0x00], withResponse: true)
         }
     }
     
     private func handleSetColor(red: UInt8, green: UInt8, blue: UInt8, brightness: UInt8) {
-        sendCommand(for: .color, withBytes: [red, green, blue, brightness])
+        sendCommand(for: .color, withBytes: [red, green, blue, brightness], withResponse: true)
     }
     
     private func handleSetBrightness(_ brightness: UInt8) {
-        sendCommand(for: .brightness, withBytes: [brightness])
+        sendCommand(for: .brightness, withBytes: [brightness], withResponse: true)
     }
     
     private func handleSetEffect(_ effect: SP621EEffect) {
-        sendCommand(for: .effect, withBytes: [effect.id])
+        sendCommand(for: .effect, withBytes: [effect.id], withResponse: true)
     }
     
     private func handleSetEffectSpeed(_ speed: UInt8) {
-        sendCommand(for: .effectSpeed, withBytes: [speed])
+        sendCommand(for: .effectSpeed, withBytes: [speed], withResponse: true)
     }
     
     private func handleSetEffectLength(_ length: UInt8) {
-        sendCommand(for: .effectLength, withBytes: [length])
+        sendCommand(for: .effectLength, withBytes: [length], withResponse: true)
+    }
+    
+    private func handleSetAudioSensitivity(_ sensitivity: UInt8) {
+        sendCommand(for: .audioSensitivity, withBytes: [sensitivity], withResponse: true)
     }
     
     private func handleIdentify() {
@@ -427,10 +466,14 @@ extension SP621E {
                 withBytes: [state.effectLength],
                 withResponse: true
             )
-        case .audio:
+        case .audioSync:
             sendCommand(for: .effect, withBytes: [state.effectID], withResponse: true)
         }
         
         sendCommand(for: .power, withBytes: [state.isOn ? 0x01 : 0x00], withResponse: true)
+    }
+    
+    private func handleSendAudioFrame(_ frame: [UInt8]) {
+        sendCommand(for: .audioFrame, withBytes: frame, queuingIfNeeded: false)
     }
 }

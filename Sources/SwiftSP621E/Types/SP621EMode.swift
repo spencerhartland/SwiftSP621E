@@ -10,4 +10,17 @@
 public enum SP621EMode: String, Sendable {
     case solidColor = "Solid Color"
     case dynamicEffect = "Dynamic Effect"
+    case audioSync = "Audio Sync"
+    
+    public init?(from effectID: UInt8) {
+        let effect = SP621EEffect(id: effectID)
+        
+        if SP621EEffect.standardEffects.contains(effect) {
+            self.init(rawValue: SP621EMode.dynamicEffect.rawValue)
+        } else if SP621EEffect.audioEffects.contains(effect) {
+            self.init(rawValue: SP621EMode.audioSync.rawValue)
+        } else {
+            self.init(rawValue: SP621EMode.solidColor.rawValue)
+        }
+    }
 }

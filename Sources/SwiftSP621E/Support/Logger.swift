@@ -13,8 +13,10 @@ extension Logger {
     private struct Category {
         static let bluetooth = "bluetooth"
         static let persistence = "persistence"
+        static let audio = "audio"
     }
     
     public static let bluetooth = Logger(subsystem: subsystem, category: Category.bluetooth)
     public static let persistence = Logger(subsystem: subsystem, category: Category.persistence)
+    public static let audio = Logger(subsystem: subsystem, category: Category.audio)
 }

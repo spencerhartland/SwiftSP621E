@@ -8,6 +8,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import os
 
 /// An object that scans for, discovers, connects to, and manages SP621E SPI LED controllers.
 ///
@@ -19,8 +20,12 @@ public final class SwiftSP621E {
     private let group = SP621EGroup()
     private var groupNotificationsTask: Task<Void, Never>?
     
+    private let audio = AudioActor()
+    private var audioTask: Task<Void, Never>?
+    
     private var isUpdatingState: Bool = false
     
+    public let effectsStore = EffectsStore()
     /// The combined connection state of all controllers.
     public private(set) var connectionState: ConnectionState = .disconnected
     /// A boolean value indicating whether the combined connection state is `connected`.
@@ -31,6 +36,9 @@ public final class SwiftSP621E {
     public private(set) var controllers: [UUID: String] = [:]
     /// A boolean value indicating whether pairing is complete.
     public private(set) var isPaired: Bool = false
+    
+    public private(set) var levels: [Float] = [Float](repeating: 0, count: AudioActor.bandCount)
+    
     /// A boolean value indicating whether the connected LEDs are powered on.
     public var powerOn: Bool = false {
         didSet {
@@ -50,12 +58,17 @@ public final class SwiftSP621E {
     public var mode: SP621EMode = .solidColor {
         didSet {
             guard !isUpdatingState else { return }
+            
+            if mode != .audioSync { stopAudioProcessing() }
+            
             switch mode {
             case .solidColor:
                 effect = .none
             case .dynamicEffect:
-                // TODO: When more modes are added, return to the last selected mode.
-                effect = .rainbow
+                effect = effectsStore.recentEffect ?? .rainbow
+            case .audioSync:
+                effect = effectsStore.recentAudioEffect ?? .rainbow
+                startAudioProcessing()
             }
         }
     }
@@ -78,6 +91,14 @@ public final class SwiftSP621E {
         didSet {
             guard !isUpdatingState else { return }
             group.setEffect(effect)
+            switch mode {
+            case .solidColor:
+                return
+            case .dynamicEffect:
+                effectsStore.saveRecentlyUsedEffect(effect)
+            case .audioSync:
+                effectsStore.saveRecentlyUsedAudioEffect(effect)
+            }
         }
     }
     
@@ -95,6 +116,14 @@ public final class SwiftSP621E {
             guard !isUpdatingState else { return }
             let length = UInt8(effectLength.rounded())
             group.setEffectLength(length)
+        }
+    }
+    
+    public var audioSensitivity: Double = 0.0 {
+        didSet {
+            guard !isUpdatingState else { return }
+            let sensitivity = UInt8(audioSensitivity.rounded())
+            group.setAudioSensitivity(sensitivity)
         }
     }
     
@@ -130,6 +159,35 @@ public final class SwiftSP621E {
         group.changeControllerName(id: id, name: name)
     }
     
+    private func startAudioProcessing() {
+        audioTask?.cancel()
+        audioTask = Task {
+            do {
+                let frames = try await audio.beginSession()
+                for await frame in frames {
+                    levels = frame.map { Float($0) }
+                    group.sendAudioFrame(frame)
+                }
+            } catch AudioProcessorError.sampleCountInvalid {
+                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Sample count invalid.")
+            } catch AudioProcessorError.sampleCountTooLow {
+                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Sample count too low.")
+            } catch AudioProcessorError.inputUnavailable {
+                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Input unavailable.")
+            } catch AudioProcessorError.fftSetupInvalid {
+                Logger.audio.error("SwiftSP621E.startAudioProcessing() – FFT setup invalid.")
+            } catch {
+                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Unknown error.")
+            }
+        }
+    }
+    
+    private func stopAudioProcessing() {
+        audioTask?.cancel()
+        audioTask = nil
+        levels = [Float](repeating: 0, count: AudioActor.bandCount)
+    }
+    
     private func handleGroupNotification(_ notification: SP621EGroup.Notification) async {
         switch notification {
         case .connectionState(let connectionState):
@@ -159,6 +217,7 @@ public final class SwiftSP621E {
         self.effectSpeed = Double(state.effectSpeed)
         self.effectLength = Double(state.effectLength)
         self.powerOn = state.isOn
+        if mode == .audioSync { startAudioProcessing() }
         self.isUpdatingState = false
     }
 }
