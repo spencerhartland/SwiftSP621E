@@ -20,8 +20,7 @@ public final class SwiftSP621E {
     private let group = SP621EGroup()
     private var groupNotificationsTask: Task<Void, Never>?
     
-    private let audio = AudioActor()
-    private var audioTask: Task<Void, Never>?
+    private let audioSession = AudioSession()
     
     private var isUpdatingState: Bool = false
     
@@ -37,7 +36,7 @@ public final class SwiftSP621E {
     /// A boolean value indicating whether pairing is complete.
     public private(set) var isPaired: Bool = false
     
-    public private(set) var levels: [Float] = [Float](repeating: 0, count: AudioActor.bandCount)
+    public private(set) var levels: [Float] = [Float](repeating: 0, count: AudioSession.bandCount)
     
     /// A boolean value indicating whether the connected LEDs are powered on.
     public var powerOn: Bool = false {
@@ -58,8 +57,7 @@ public final class SwiftSP621E {
     public var mode: SP621EMode = .solidColor {
         didSet {
             guard !isUpdatingState else { return }
-            
-            if mode != .audioSync { stopAudioProcessing() }
+            audioSession.setActive(mode == .audioSync)
             
             switch mode {
             case .solidColor:
@@ -67,8 +65,7 @@ public final class SwiftSP621E {
             case .dynamicEffect:
                 effect = effectsStore.recentEffect ?? .rainbow
             case .audioSync:
-                effect = effectsStore.recentAudioEffect ?? .rainbow
-                startAudioProcessing()
+                effect = effectsStore.recentAudioEffect ?? .fullColorRhythmSpectrum
             }
         }
     }
@@ -135,6 +132,7 @@ public final class SwiftSP621E {
                 await handleGroupNotification(notification)
             }
         }
+        observeAudioSession()
     }
     
     /// Connects to controllers.
@@ -159,33 +157,24 @@ public final class SwiftSP621E {
         group.changeControllerName(id: id, name: name)
     }
     
-    private func startAudioProcessing() {
-        audioTask?.cancel()
-        audioTask = Task {
-            do {
-                let frames = try await audio.beginSession()
-                for await frame in frames {
-                    levels = frame.map { Float($0) }
-                    group.sendAudioFrame(frame)
-                }
-            } catch AudioProcessorError.sampleCountInvalid {
-                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Sample count invalid.")
-            } catch AudioProcessorError.sampleCountTooLow {
-                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Sample count too low.")
-            } catch AudioProcessorError.inputUnavailable {
-                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Input unavailable.")
-            } catch AudioProcessorError.fftSetupInvalid {
-                Logger.audio.error("SwiftSP621E.startAudioProcessing() – FFT setup invalid.")
-            } catch {
-                Logger.audio.error("SwiftSP621E.startAudioProcessing() – Unknown error.")
+    private func observeAudioSession() {
+        Task {
+            await withTaskGroup { taskGroup in
+                taskGroup.addTask { await self.observeFrames() }
+                taskGroup.addTask { await self.observeLevels() }
             }
         }
     }
     
-    private func stopAudioProcessing() {
-        audioTask?.cancel()
-        audioTask = nil
-        levels = [Float](repeating: 0, count: AudioActor.bandCount)
+    private func observeFrames() async {
+        for await frame in audioSession.frames {
+            guard mode == .audioSync else { continue }
+            group.sendAudioFrame(frame)
+        }
+    }
+    
+    private func observeLevels() async {
+        for await levels in audioSession.levels { self.levels = levels }
     }
     
     private func handleGroupNotification(_ notification: SP621EGroup.Notification) async {
@@ -217,7 +206,7 @@ public final class SwiftSP621E {
         self.effectSpeed = Double(state.effectSpeed)
         self.effectLength = Double(state.effectLength)
         self.powerOn = state.isOn
-        if mode == .audioSync { startAudioProcessing() }
+        audioSession.setActive(mode == .audioSync)
         self.isUpdatingState = false
     }
 }

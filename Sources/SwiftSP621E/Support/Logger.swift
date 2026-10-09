@@ -16,7 +16,7 @@ extension Logger {
         static let audio = "audio"
     }
     
-    public static let bluetooth = Logger(subsystem: subsystem, category: Category.bluetooth)
-    public static let persistence = Logger(subsystem: subsystem, category: Category.persistence)
-    public static let audio = Logger(subsystem: subsystem, category: Category.audio)
+    internal static let bluetooth = Logger(subsystem: subsystem, category: Category.bluetooth)
+    internal static let persistence = Logger(subsystem: subsystem, category: Category.persistence)
+    internal static let audio = Logger(subsystem: subsystem, category: Category.audio)
 }

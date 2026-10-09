@@ -5,122 +5,13 @@
 //  Created by Spencer Hartland on 9/19/26.
 //
 
-import AVFAudio
 import Accelerate
 
-enum AudioProcessorError: Error {
-    case sampleCountInvalid
-    case sampleCountTooLow
-    case inputUnavailable
-    case fftSetupInvalid
-}
-
-public actor AudioActor {
-    private static let sampleBufferCount: Int = 4
-    public static let bandCount = 16
-    private static let bus: AVAudioNodeBus = 0
-    private static let tapDuration: Double = 0.1
-    
-    private let engine = AVAudioEngine()
-    private var audioProcessor: AudioProcessor?
-    private var sessionID: UUID?
-    private var processingTask: Task<Void, Never>?
-    
-    public init() {}
-    
-    public func beginSession() throws -> AsyncStream<[UInt8]> {
-        endSession()
-        
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: Self.bus)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw AudioProcessorError.inputUnavailable
-        }
-        let bufferSize = AVAudioFrameCount(format.sampleRate * Self.tapDuration)
-        let (signal, signalContinuation) = AsyncStream<[Float]>.makeStream(
-            bufferingPolicy: .bufferingNewest(Self.sampleBufferCount)
-        )
-        
-        Self.installTap(
-            onInput: input,
-            bufferSize: bufferSize,
-            format: format,
-            continuation: signalContinuation
-        )
-        
-        do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: Self.bus)
-            throw error
-        }
-        
-        let id = UUID()
-        let (frames, framesContinuation) = AsyncStream<[UInt8]>.makeStream(
-            bufferingPolicy: .bufferingNewest(4)
-        )
-        framesContinuation.onTermination = { _ in
-            Task { await self.endSession(id) }
-        }
-        self.audioProcessor = try AudioProcessor(
-            sampleRate: format.sampleRate,
-            bandCount: Self.bandCount
-        )
-        self.sessionID = id
-        self.processingTask = Task {
-            for await samples in signal {
-                guard let frame = self.audioProcessor?.makeFrame(from: samples) else { break }
-                framesContinuation.yield(frame)
-            }
-            framesContinuation.finish()
-        }
-        
-        return frames
-    }
-    
-    private func endSession(_ id: UUID? = nil) {
-        if let id { guard id == sessionID else { return } }
-        guard sessionID != nil else { return }
-        processingTask?.cancel()
-        processingTask = nil
-        engine.stop()
-        engine.inputNode.removeTap(onBus: Self.bus)
-        audioProcessor = nil
-        sessionID = nil
-    }
-    
-    private static func installTap(
-        onInput input: AVAudioInputNode,
-        bufferSize: AVAudioFrameCount,
-        format: AVAudioFormat,
-        continuation: AsyncStream<[Float]>.Continuation
-    ) {
-        if #available(iOS 27, macCatalyst 27, macOS 27, tvOS 27, visionOS 27, watchOS 27, *) {
-            try? input.installAudioTap(
-                onBus: bus,
-                bufferSize: bufferSize,
-                format: format
-            ) { @Sendable buffer, _ in
-                guard case .float(let data) = buffer.channelData(0) else { return }
-                let samples = data.withUnsafeBufferPointer { [Float]($0) }
-                continuation.yield(samples)
-            }
-        } else {
-            input.installTap(
-                onBus: bus,
-                bufferSize: bufferSize,
-                format: format
-            ) { @Sendable buffer, _ in
-                guard let channelData = buffer.floatChannelData?[0] else { return }
-                let frameCount = Int(buffer.frameLength)
-                let samples = [Float](UnsafeBufferPointer(start: channelData, count: frameCount))
-                continuation.yield(samples)
-            }
-        }
-    }
-}
-
 internal struct AudioProcessor {
+    enum Error: Swift.Error {
+        case fftSetupInvalid
+    }
+    
     private static let sampleCount: Int = 4096
     private static var complexValuesCount: Int { sampleCount / 2 }
     private static let minFrequency: Float = 60
@@ -143,9 +34,9 @@ internal struct AudioProcessor {
     private var magnitudesImag = [Float](repeating: 0, count: Self.complexValuesCount)
     private var magnitudes = [Float](repeating: 0, count: Self.complexValuesCount)
     
-    public var levels = [Float](repeating: 0, count: AudioActor.bandCount)
+    public var levels = [Float](repeating: 0, count: AudioSession.bandCount)
     
-    public init(sampleRate: Double, bandCount: Int) throws {
+    public init(sampleRate: Double, bandCount: Int) throws(AudioProcessor.Error) {
         do {
             self.dft = try vDSP.DiscreteFourierTransform(
                 count: Self.sampleCount,
@@ -154,7 +45,7 @@ internal struct AudioProcessor {
                 ofType: Float.self
             )
         } catch {
-            throw AudioProcessorError.fftSetupInvalid
+            throw .fftSetupInvalid
         }
         self.window = vDSP.window(
             ofType: Float.self,
