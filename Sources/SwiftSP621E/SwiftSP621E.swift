@@ -23,6 +23,7 @@ public final class SwiftSP621E {
     private let audioSession = AudioSession()
     
     private var isUpdatingState: Bool = false
+    private var applyingPreset: Bool = false
     
     public let effectsStore = EffectsStore()
     /// The combined connection state of all controllers.
@@ -43,6 +44,7 @@ public final class SwiftSP621E {
         didSet {
             guard !isUpdatingState else { return }
             powerOn ? group.powerOn() : group.powerOff()
+            resetPreset()
         }
     }
     /// The brightness of the connected LEDs.
@@ -69,6 +71,19 @@ public final class SwiftSP621E {
             }
         }
     }
+    public var preset: EffectPreset? = nil {
+        didSet {
+            guard let preset, !isUpdatingState else { return }
+            self.applyingPreset = true
+            self.effect = preset.effect
+            self.effectSpeed = preset.effectSpeed
+            self.effectLength = preset.effectLength
+            self.color = preset.effectColor
+            self.audioSensitivity = preset.audioSensitivity
+            self.powerOn = true
+            self.applyingPreset = false
+        }
+    }
     /// The color of the connected LEDs.
     public var color: Color = Color(red: 255, green: 0, blue: 0) {
         didSet {
@@ -81,6 +96,7 @@ public final class SwiftSP621E {
                 blue: rgb.blue,
                 brightness: brightnessValue
             )
+            resetPreset()
         }
     }
     /// The currently displayed dynamic lighting effect.
@@ -88,14 +104,8 @@ public final class SwiftSP621E {
         didSet {
             guard !isUpdatingState else { return }
             group.setEffect(effect)
-            switch mode {
-            case .solidColor:
-                return
-            case .dynamicEffect:
-                effectsStore.saveRecentlyUsedEffect(effect)
-            case .audioSync:
-                effectsStore.saveRecentlyUsedAudioEffect(effect)
-            }
+            if mode != .solidColor { effectsStore.saveRecentlyUsedEffect(effect) }
+            resetPreset()
         }
     }
     
@@ -105,6 +115,7 @@ public final class SwiftSP621E {
             guard !isUpdatingState else { return }
             let speed = UInt8(effectSpeed.rounded())
             group.setEffectSpeed(speed)
+            resetPreset()
         }
     }
     /// The duration of one cycle of the currently displayed dynamic lighting effect.
@@ -113,6 +124,7 @@ public final class SwiftSP621E {
             guard !isUpdatingState else { return }
             let length = UInt8(effectLength.rounded())
             group.setEffectLength(length)
+            resetPreset()
         }
     }
     
@@ -121,6 +133,7 @@ public final class SwiftSP621E {
             guard !isUpdatingState else { return }
             let sensitivity = UInt8(audioSensitivity.rounded())
             group.setAudioSensitivity(sensitivity)
+            resetPreset()
         }
     }
     
@@ -155,6 +168,11 @@ public final class SwiftSP621E {
     
     public func changeControllerName(id: UUID, name: String) {
         group.changeControllerName(id: id, name: name)
+    }
+    
+    private func resetPreset() {
+        guard !applyingPreset, preset != nil else { return }
+        self.preset = nil
     }
     
     private func observeAudioSession() {

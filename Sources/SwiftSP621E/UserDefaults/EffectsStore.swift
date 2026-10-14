@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 
 @MainActor
 @Observable
@@ -13,21 +14,36 @@ public final class EffectsStore {
     private static let recentEffectKey: String = "recentEffect"
     private static let recentAudioEffectKey: String = "recentAudioEffect"
     private static let favoriteEffectsKey: String = "favoriteEffects"
-    private static let favoriteAudioEffectsKey: String = "favoriteAudioEffects"
     private static let effectPresetsKey: String = "effectPresets"
     
     private let defaults: UserDefaults = UserDefaults.shared
     
     public private(set) var recentEffect: SP621EEffect?
-    public private(set) var favoriteEffects: Set<SP621EEffect> = []
-    private var effectPresets: [UUID: EffectPreset] = [:]
-    public var presets: [EffectPreset] {
-        [EffectPreset](effectPresets.values).sorted { $0.name < $1.name }
+    public private(set) var recentAudioEffect: SP621EEffect?
+    
+    private var favoriteEffects: Set<SP621EEffect> = []
+    
+    public var allFavoriteEffects: [SP621EEffect] {
+        [SP621EEffect](favoriteEffects).sorted { $0.name < $1.name }
+    }
+    public var favoriteStandardEffects: [SP621EEffect] {
+        allFavoriteEffects.filter { $0.type == .standard }
+    }
+    public var favoriteAudioEffects: [SP621EEffect] {
+        allFavoriteEffects.filter { $0.type == .audio }
     }
     
-    public private(set) var recentAudioEffect: SP621EEffect?
-    public private(set) var favoriteAudioEffects: Set<SP621EEffect> = []
-    // TODO: Implement audio effect presets
+    private var effectPresets: [UUID: EffectPreset] = [:]
+    
+    public var allPresets: [EffectPreset] {
+        [EffectPreset](effectPresets.values).sorted { $0.name < $1.name }
+    }
+    public var standardPresets: [EffectPreset] {
+        allPresets.filter { $0.effect.type == .standard }
+    }
+    public var audioPresets: [EffectPreset] {
+        allPresets.filter { $0.effect.type == .audio }
+    }
     
     public init() {
         self.recentEffect = getValue(SP621EEffect.self, forKey: Self.recentEffectKey)
@@ -36,41 +52,31 @@ public final class EffectsStore {
             Set<SP621EEffect>.self,
             forKey: Self.favoriteEffectsKey
         ) ?? []
-        self.favoriteAudioEffects = getValue(
-            Set<SP621EEffect>.self,
-            forKey: Self.favoriteAudioEffectsKey
-        ) ?? []
-        self.effectPresets = getValue([UUID: EffectPreset].self, forKey: Self.effectPresetsKey) ?? [:]
+        self.effectPresets = getValue(
+            [UUID: EffectPreset].self,
+            forKey: Self.effectPresetsKey
+        ) ?? [:]
     }
     
-    public func favoriteEffect(_ effect: SP621EEffect) {
+    public func addFavoriteEffect(_ effect: SP621EEffect) {
         self.favoriteEffects.insert(effect)
         updateValue(self.favoriteEffects, forKey: Self.favoriteEffectsKey)
     }
     
-    public func favoriteAudioEffect(_ effect: SP621EEffect) {
-        self.favoriteAudioEffects.insert(effect)
-        updateValue(self.favoriteAudioEffects, forKey: Self.favoriteAudioEffectsKey)
-    }
-    
-    public func unfavoriteEffect(_ effect: SP621EEffect) {
+    public func removeFavoriteEffect(_ effect: SP621EEffect) {
         self.favoriteEffects.remove(effect)
         updateValue(self.favoriteEffects, forKey: Self.favoriteEffectsKey)
     }
     
-    public func unfavoriteAudioEffect(_ effect: SP621EEffect) {
-        self.favoriteAudioEffects.remove(effect)
-        updateValue(self.favoriteAudioEffects, forKey: Self.favoriteAudioEffectsKey)
-    }
-    
     public func saveRecentlyUsedEffect(_ effect: SP621EEffect) {
-        self.recentEffect = effect
-        updateValue(self.recentEffect, forKey: Self.recentEffectKey)
-    }
-    
-    public func saveRecentlyUsedAudioEffect(_ effect: SP621EEffect) {
-        self.recentAudioEffect = effect
-        updateValue(self.recentAudioEffect, forKey: Self.recentAudioEffectKey)
+        switch effect.type {
+        case .standard:
+            self.recentEffect = effect
+            updateValue(self.recentEffect, forKey: Self.recentEffectKey)
+        case .audio:
+            self.recentAudioEffect = effect
+            updateValue(self.recentAudioEffect, forKey: Self.recentAudioEffectKey)
+        }
     }
     
     public func savePreset(_ preset: EffectPreset) {
@@ -89,17 +95,40 @@ public final class EffectsStore {
     }
     
     private func updateValue<T>(_ value: T, forKey key: String) where T: Encodable {
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        defaults.set(data, forKey: key)
+        do {
+            let data = try JSONEncoder().encode(value)
+            defaults.set(data, forKey: key)
+        } catch {
+            let description = String(describing: error)
+            Logger.persistence.error(
+                """
+                EffectsStore.updateValue(_:forKey:) - An error occurred while encoding the \
+                specified value: \(description)
+                """
+            )
+        }
     }
     
     private func getValue<T>(_ type: T.Type, forKey key: String) -> T? where T: Decodable {
-        guard let data = defaults.data(forKey: key),
-              let decodedData = try? JSONDecoder().decode(type, from: data)
-        else {
+        do {
+            guard let data = defaults.data(forKey: key) else {
+                Logger.persistence.info(
+                    """
+                    EffectsStore.getValue(_:forKey:) - The specified key did not return data.
+                    """
+                )
+                return nil
+            }
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            let description = String(describing: error)
+            Logger.persistence.info(
+                    """
+                    EffectsStore.getValue(_:forKey:) - An error occurred while decodig the \
+                    specified value: \(description)
+                    """
+            )
             return nil
         }
-        
-        return decodedData
     }
 }

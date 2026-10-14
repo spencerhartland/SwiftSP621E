@@ -15,6 +15,7 @@ public struct EffectPreset: Identifiable, Hashable, Codable {
         case effect
         case effectSpeed
         case effectLength
+        case effectColor
         case audioSensitivity
     }
     
@@ -24,6 +25,7 @@ public struct EffectPreset: Identifiable, Hashable, Codable {
     public var effect: SP621EEffect
     public var effectSpeed: Double
     public var effectLength: Double
+    public var effectColor: Color
     public var audioSensitivity: Double
     
     public init(
@@ -32,6 +34,7 @@ public struct EffectPreset: Identifiable, Hashable, Codable {
         effect: SP621EEffect,
         effectSpeed: Double,
         effectLength: Double,
+        effectColor: Color,
         audioSensitivity: Double,
     ) {
         self.id = UUID()
@@ -40,6 +43,7 @@ public struct EffectPreset: Identifiable, Hashable, Codable {
         self.effect = effect
         self.effectSpeed = effectSpeed
         self.effectLength = effectLength
+        self.effectColor = effectColor
         self.audioSensitivity = audioSensitivity
     }
     
@@ -62,6 +66,17 @@ public struct EffectPreset: Identifiable, Hashable, Codable {
         self.effect = try values.decode(SP621EEffect.self, forKey: .effect)
         self.effectSpeed = try values.decode(Double.self, forKey: .effectSpeed)
         self.effectLength = try values.decode(Double.self, forKey: .effectLength)
+        
+        let effectColorData = try values.decode(Data.self, forKey: .effectColor)
+        if let uiColor = try NSKeyedUnarchiver.unarchivedObject(
+            ofClass: UIColor.self,
+            from: effectColorData
+        ) {
+            self.effectColor = Color(uiColor: uiColor)
+        } else {
+            self.effectColor = Color(red: 1, green: 0, blue: 0)
+        }
+        
         self.audioSensitivity = try values.decode(Double.self, forKey: .audioSensitivity)
     }
     
@@ -80,6 +95,13 @@ public struct EffectPreset: Identifiable, Hashable, Codable {
         try container.encode(self.effect, forKey: .effect)
         try container.encode(self.effectSpeed, forKey: .effectSpeed)
         try container.encode(self.effectLength, forKey: .effectLength)
+        
+        let effectColorData = try NSKeyedArchiver.archivedData(
+            withRootObject: UIColor(self.effectColor),
+            requiringSecureCoding: false
+        )
+        try container.encode(effectColorData, forKey: .effectColor)
+        
         try container.encode(self.audioSensitivity, forKey: .audioSensitivity)
     }
 }
