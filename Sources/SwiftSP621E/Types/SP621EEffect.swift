@@ -1016,92 +1016,121 @@ extension SP621EEffect {
     public static let fullColorRhythmSpectrum = SP621EEffect(
         "Rhythm Spectrum (Multicolor)",
         id: 0xC9,
-        type: .audio
+        type: .audio,
+        pattern: .rhythmSpectrum,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple],
     )
     public static let singleColorRhythmSpectrum = SP621EEffect(
         "Rhythm Spectrum (Single Color)",
         id: 0xCA,
-        type: .audio
+        type: .audio,
+        pattern: .rhythmSpectrum,
     )
     public static let fullColorRhythmStars = SP621EEffect(
         "Rhythm Stars (Multicolor)",
         id: 0xCB,
-        type: .audio
+        type: .audio,
+        pattern: .rhythmStars,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple],
     )
     public static let singleColorRhythmStars = SP621EEffect(
         "Rhythm Stars (Single Color)",
         id: 0xCC,
-        type: .audio
+        type: .audio,
+        pattern: .rhythmStars,
     )
     public static let gradientEnergy = SP621EEffect(
         "Energy (Multicolor)",
         id: 0xCD,
-        type: .audio
+        type: .audio,
+        pattern: .energy,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple, .white],
     )
     public static let singleColorEnergy = SP621EEffect(
         "Energy (Single Color)",
         id: 0xCE,
-        type: .audio
+        type: .audio,
+        pattern: .energy
     )
     public static let gradientPulse = SP621EEffect(
         "Pulse (Multicolor)",
         id: 0xCF,
-        type: .audio
+        type: .audio,
+        pattern: .pulse,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple],
     )
     public static let singleColorPulse = SP621EEffect(
         "Pulse (Single Color)",
         id: 0xD0,
-        type: .audio
+        type: .audio,
+        pattern: .pulse,
     )
     public static let fullColorEjectionForward = SP621EEffect(
         "Ejection Forward (Multicolor)",
         id: 0xD1,
-        type: .audio
+        type: .audio,
+        pattern: .ejectionForward,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple],
     )
     public static let singleColorEjectionForward = SP621EEffect(
         "Ejection Forward (Single Color)",
         id: 0xD2,
-        type: .audio
+        type: .audio,
+        pattern: .ejectionForward
     )
     public static let fullColorEjectionBackward = SP621EEffect(
         "Ejection Backward (Multicolor)",
         id: 0xD3,
-        type: .audio
+        type: .audio,
+        pattern: .ejectionBackward,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple],
     )
     public static let singleColorEjectionBackward = SP621EEffect(
         "Ejection Backward (Single Color)",
         id: 0xD4,
-        type: .audio
+        type: .audio,
+        pattern: .ejectionBackward,
     )
     public static let fullColorVUMeter = SP621EEffect(
         "VU Meter (Multicolor)",
         id: 0xD5,
-        type: .audio
+        type: .audio,
+        pattern: .vuMeter,
+        palette: [.red, .green, .blue, .yellow, .cyan, .purple],
     )
     public static let singleColorVUMeter = SP621EEffect(
         "VU Meter (Single Color)",
         id: 0xD6,
-        type: .audio
+        type: .audio,
+        pattern: .vuMeter,
     )
     public static let redWhiteBlue = SP621EEffect(
         "Red, White, and Blue",
         id: 0xD7,
-        type: .audio
+        type: .audio,
+        pattern: .redWhiteBlue,
+        palette: [.red, .white, .blue],
     )
     public static let festive = SP621EEffect(
         "Festive",
         id: 0xD8,
-        type: .audio
+        type: .audio,
+        pattern: .festive,
+        palette: [.red, .green],
     )
     public static let flames = SP621EEffect(
         "Flames",
         id: 0xD9,
-        type: .audio
+        type: .audio,
+        pattern: .flames,
+        palette: [.red, .yellow, .white],
     )
     public static let party = SP621EEffect(
         "Party",
         id: 0xDA,
-        type: .audio
+        type: .audio,
+        pattern: .party,
+        palette: [.red, .green, .blue],
     )
 }
 
