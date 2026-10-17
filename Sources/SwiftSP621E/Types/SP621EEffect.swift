@@ -5,831 +5,1101 @@
 //  Created by Spencer Hartland on 8/21/26.
 //
 
-public struct SP621EEffect: Identifiable, Sendable, Equatable, Hashable, Codable {
+import SwiftUI
+
+public struct SP621EEffect: Identifiable, Sendable, Hashable {
+    public enum Pattern: String, Sendable, Hashable, Codable, Identifiable {
+        case rainbow = "Rainbow"
+        case fire = "Fire"
+        case comet = "Comet"
+        case meteor = "Meteor"
+        case gradientSnake = "Gradient Snake"
+        case wave = "Wave"
+        case stars = "Stars"
+        case twinklingStars = "Twinkling Stars"
+        case breath = "Breath"
+        case stack = "Stack"
+        case snake = "Snake"
+        case cometSpin = "Comet Spin"
+        case dotSpin = "Dot Spin"
+        case segmentSpin = "Segment Spin"
+        
+        case rhythmSpectrum = "Rhythm Spectrum"
+        case rhythmStars = "Rhythm Stars"
+        case energy = "Energy"
+        case pulse = "Pulse"
+        case ejectionForward = "Ejection Forward"
+        case ejectionBackward = "Ejection Backward"
+        case vuMeter = "VU Meter"
+        case redWhiteBlue = "Red, White, and Blue"
+        case festive = "Festive"
+        case flames = "Flames"
+        case party = "Party"
+        
+        public var id: String { self.rawValue }
+        public var name: String { self.rawValue }
+        
+        public static let standardPatterns: [Pattern] = [
+            rainbow,
+            fire,
+            comet,
+            meteor,
+            gradientSnake,
+            wave,
+            stars,
+            twinklingStars,
+            breath,
+            stack,
+            snake,
+            cometSpin,
+            dotSpin,
+            segmentSpin,
+        ]
+        
+        public static let audioPatterns: [Pattern] = [
+            rhythmSpectrum,
+            rhythmStars,
+            energy,
+            pulse,
+            ejectionForward,
+            ejectionBackward,
+            vuMeter,
+            redWhiteBlue,
+            festive,
+            flames,
+            party,
+        ]
+    }
+    
+    public enum StandardColor: String, Sendable, Hashable, Codable, Identifiable, CaseIterable {
+        case red = "Red"
+        case green = "Green"
+        case blue = "Blue"
+        case yellow = "Yellow"
+        case cyan = "Cyan"
+        case purple = "Purple"
+        case white = "White"
+        
+        public var id: String { self.rawValue }
+        public var name: String { self.rawValue }
+        
+        public var color: Color {
+            switch self {
+            case .red: .red
+            case .green: .green
+            case .blue: .blue
+            case .yellow: .yellow
+            case .cyan: .cyan
+            case .purple: .purple
+            case .white: .white
+            }
+        }
+    }
+    
     public enum EffectType: Sendable, Codable {
         case standard
         case audio
     }
     
-    public let type: EffectType
     public let id: UInt8
     public let name: String
+    public let type: EffectType
+    public let pattern: Pattern?
+    public let palette: [StandardColor]?
     
     init(id: UInt8, type: EffectType = .standard) {
-        self = Self.allEffects[id] ?? .init(name: "Effect \(id)", id: id, type: type)
+        self = Self.allEffects[id] ?? .init(
+            "Effect \(id)",
+            id: id,
+            type: type,
+            pattern: nil,
+            palette: nil
+        )
     }
     
-    init(name: String, id: UInt8, type: EffectType) {
+    init(
+        _ name: String,
+        id: UInt8,
+        type: EffectType,
+        pattern: Pattern? = nil,
+        palette: [StandardColor]? = nil,
+    ) {
         self.name = name
         self.id = id
         self.type = type
+        self.pattern = pattern
+        self.palette = palette
+    }
+    
+    init(
+        _ name: String? = nil,
+        id: UInt8,
+        type: EffectType,
+        pattern: Pattern,
+        palette: [StandardColor]? = nil,
+    ) {
+        self.name = name ?? Self.derivedName(palette: palette, pattern: pattern)
+        self.id = id
+        self.type = type
+        self.pattern = pattern
+        self.palette = palette
+    }
+    
+    private static func derivedName(palette: [StandardColor]?, pattern: Pattern) -> String {
+        if let palette {
+            let prefix = palette.map(\.rawValue).joined(separator: "-")
+            return "\(prefix) \(pattern.name)"
+        } else {
+            return pattern.name
+        }
     }
 }
 
 extension SP621EEffect {
     // None: turns off effects
-    public static let none = SP621EEffect(name: "None", id: 0xBE, type: .standard)
+    public static let none = SP621EEffect("None", id: 0xBE, type: .standard)
     
     // Dynamic Effects: looping animations (0x01 - 0x8E)
     public static let rainbow = SP621EEffect(
-        name: "Rainbow",
         id: 0x01,
-        type: .standard
+        type: .standard,
+        pattern: .rainbow,
     )
     public static let rainbowMeteor = SP621EEffect(
-        name: "Rainbow Meteor",
+        "Rainbow Meteor",
         id: 0x02,
-        type: .standard
+        type: .standard,
+        pattern: .rainbow,
     )
     public static let rainbowStars = SP621EEffect(
-        name: "Rainbow Stars",
+        "Rainbow Stars",
         id: 0x03,
-        type: .standard
+        type: .standard,
+        pattern: .rainbow,
     )
     public static let rainbowSpin = SP621EEffect(
-        name: "Rainbow Spin",
+        "Rainbow Spin",
         id: 0x04,
-        type: .standard
+        type: .standard,
+        pattern: .rainbow,
     )
     public static let redYellowFire = SP621EEffect(
-        name: "Red-Yellow Fire",
         id: 0x05,
-        type: .standard
+        type: .standard,
+        pattern: .fire,
+        palette: [.red, .yellow],
     )
     public static let redPurpleFire = SP621EEffect(
-        name: "Red-Purple Fire",
         id: 0x06,
-        type: .standard
+        type: .standard,
+        pattern: .fire,
+        palette: [.red, .purple],
     )
     public static let greenYellowFire = SP621EEffect(
-        name: "Green-Yellow Fire",
         id: 0x07,
-        type: .standard
+        type: .standard,
+        pattern: .fire,
+        palette: [.green, .yellow],
     )
     public static let greenCyanFire = SP621EEffect(
-        name: "Green-Cyan Fire",
         id: 0x08,
-        type: .standard
+        type: .standard,
+        pattern: .fire,
+        palette: [.green, .cyan],
     )
     public static let bluePurpleFire = SP621EEffect(
-        name: "Blue-Purple Fire",
         id: 0x09,
-        type: .standard
+        type: .standard,
+        pattern: .fire,
+        palette: [.blue, .purple],
     )
     public static let blueCyanFire = SP621EEffect(
-        name: "Blue-Cyan Fire",
         id: 0x0A,
-        type: .standard
+        type: .standard,
+        pattern: .fire,
+        palette: [.blue, .cyan],
     )
     public static let redComet = SP621EEffect(
-        name: "Red Comet",
         id: 0x0B,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.red],
     )
     public static let greenComet = SP621EEffect(
-        name: "Green Comet",
         id: 0x0C,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.green],
     )
     public static let blueComet = SP621EEffect(
-        name: "Blue Comet",
         id: 0x0D,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.blue],
     )
     public static let yellowComet = SP621EEffect(
-        name: "Yellow Comet",
         id: 0x0E,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.yellow],
     )
     public static let cyanComet = SP621EEffect(
-        name: "Cyan Comet",
         id: 0x0F,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.cyan],
     )
     public static let purpleComet = SP621EEffect(
-        name: "Purple Comet",
         id: 0x10,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.purple],
     )
     public static let whiteComet = SP621EEffect(
-        name: "White Comet",
         id: 0x11,
-        type: .standard
+        type: .standard,
+        pattern: .comet,
+        palette: [.white],
     )
     public static let redMeteor = SP621EEffect(
-        name: "Red Meteor",
         id: 0x12,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.red],
     )
     public static let greenMeteor = SP621EEffect(
-        name: "Green Meteor",
         id: 0x13,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.green],
     )
     public static let blueMeteor = SP621EEffect(
-        name: "Blue Meteor",
         id: 0x14,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.blue],
     )
     public static let yellowMeteor = SP621EEffect(
-        name: "Yellow Meteor",
         id: 0x15,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.yellow],
     )
     public static let cyanMeteor = SP621EEffect(
-        name: "Cyan Meteor",
         id: 0x16,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.cyan],
     )
     public static let purpleMeteor = SP621EEffect(
-        name: "Purple Meteor",
         id: 0x17,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.purple],
     )
     public static let whiteMeteor = SP621EEffect(
-        name: "White Meteor",
         id: 0x18,
-        type: .standard
+        type: .standard,
+        pattern: .meteor,
+        palette: [.white],
     )
     public static let redGreenGradientSnake = SP621EEffect(
-        name: "Red-Green Gradient Snake",
         id: 0x19,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.red, .green],
     )
     public static let redBlueGradientSnake = SP621EEffect(
-        name: "Red-Blue Gradient Snake",
         id: 0x1A,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.red, .blue],
     )
     public static let redYellowGradientSnake = SP621EEffect(
-        name: "Red-Yellow Gradient Snake",
         id: 0x1B,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.red, .yellow],
     )
     public static let redCyanGradientSnake = SP621EEffect(
-        name: "Red-Cyan Gradient Snake",
         id: 0x1C,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.red, .cyan],
     )
     public static let redPurpleGradientSnake = SP621EEffect(
-        name: "Red-Purple Gradient Snake",
         id: 0x1D,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.red, .purple],
     )
     public static let redWhiteGradientSnake = SP621EEffect(
-        name: "Red-White Gradient Snake",
         id: 0x1E,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.red, .white],
     )
     public static let greenBlueGradientSnake = SP621EEffect(
-        name: "Green-Blue Gradient Snake",
         id: 0x1F,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.green, .blue],
     )
     public static let greenYellowGradientSnake = SP621EEffect(
-        name: "Green-Yellow Gradient Snake",
         id: 0x20,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.green, .yellow],
     )
     public static let greenCyanGradientSnake = SP621EEffect(
-        name: "Green-Cyan Gradient Snake",
         id: 0x21,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.green, .cyan],
     )
     public static let greenPurpleGradientSnake = SP621EEffect(
-        name: "Green-Purple Gradient Snake",
         id: 0x22,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.green, .purple],
     )
     public static let greenWhiteGradientSnake = SP621EEffect(
-        name: "Green-White Gradient Snake",
         id: 0x23,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.green, .white],
     )
     public static let blueYellowGradientSnake = SP621EEffect(
-        name: "Blue-Yellow Gradient Snake",
         id: 0x24,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.blue, .yellow],
     )
     public static let blueCyanGradientSnake = SP621EEffect(
-        name: "Blue-Cyan Gradient Snake",
         id: 0x25,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.blue, .cyan],
     )
     public static let bluePurpleGradientSnake = SP621EEffect(
-        name: "Blue-Purple Gradient Snake",
         id: 0x26,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.blue, .purple],
     )
     public static let blueWhiteGradientSnake = SP621EEffect(
-        name: "Blue-White Gradient Snake",
         id: 0x27,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.blue, .white],
     )
     public static let yellowCyanGradientSnake = SP621EEffect(
-        name: "Yellow-Cyan Gradient Snake",
         id: 0x28,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.yellow, .cyan],
     )
     public static let yellowPurpleGradientSnake = SP621EEffect(
-        name: "Yellow-Purple Gradient Snake",
         id: 0x29,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.yellow, .purple],
     )
     public static let yellowWhiteGradientSnake = SP621EEffect(
-        name: "Yellow-White Gradient Snake",
         id: 0x2A,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.yellow, .white],
     )
     public static let cyanPurpleGradientSnake = SP621EEffect(
-        name: "Cyan-Purple Gradient Snake",
         id: 0x2B,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.cyan, .purple],
     )
     public static let cyanWhiteGradientSnake = SP621EEffect(
-        name: "Cyan-White Gradient Snake",
         id: 0x2C,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.cyan, .white],
     )
     public static let purpleWhiteGradientSnake = SP621EEffect(
-        name: "Purple-White Gradient Snake",
         id: 0x2D,
-        type: .standard
+        type: .standard,
+        pattern: .gradientSnake,
+        palette: [.purple, .white],
     )
     public static let redWave = SP621EEffect(
-        name: "Red Wave",
         id: 0x2E,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red],
     )
     public static let greenWave = SP621EEffect(
-        name: "Green Wave",
         id: 0x2F,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.green],
     )
     public static let blueWave = SP621EEffect(
-        name: "Blue Wave",
         id: 0x30,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.blue],
     )
     public static let yellowWave = SP621EEffect(
-        name: "Yellow Wave",
         id: 0x31,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.yellow],
     )
     public static let cyanWave = SP621EEffect(
-        name: "Cyan Wave",
         id: 0x32,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.cyan],
     )
     public static let purpleWave = SP621EEffect(
-        name: "Purple Wave",
         id: 0x33,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.purple],
     )
     public static let whiteWave = SP621EEffect(
-        name: "White Wave",
         id: 0x34,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.white],
     )
     public static let redGreenWave = SP621EEffect(
-        name: "Red-Green Wave",
         id: 0x35,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red, .green],
     )
     public static let redBlueWave = SP621EEffect(
-        name: "Red-Blue Wave",
         id: 0x36,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red, .blue],
     )
     public static let redYellowWave = SP621EEffect(
-        name: "Red-Yellow Wave",
         id: 0x37,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red, .yellow],
     )
     public static let redCyanWave = SP621EEffect(
-        name: "Red-Cyan Wave",
         id: 0x38,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red, .cyan],
     )
     public static let redPurpleWave = SP621EEffect(
-        name: "Red-Purple Wave",
         id: 0x39,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red, .purple],
     )
     public static let redWhiteWave = SP621EEffect(
-        name: "Red-White Wave",
         id: 0x3A,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.red, .white],
     )
     public static let greenBlueWave = SP621EEffect(
-        name: "Green-Blue Wave",
         id: 0x3B,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.green, .blue],
     )
     public static let greenYellowWave = SP621EEffect(
-        name: "Green-Yellow Wave",
         id: 0x3C,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.green, .yellow],
     )
     public static let greenCyanWave = SP621EEffect(
-        name: "Green-Cyan Wave",
         id: 0x3D,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.green, .cyan],
     )
     public static let greenPurpleWave = SP621EEffect(
-        name: "Green-Purple Wave",
         id: 0x3E,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.green, .purple],
     )
     public static let greenWhiteWave = SP621EEffect(
-        name: "Green-White Wave",
         id: 0x3F,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.green, .white],
     )
     public static let blueYellowWave = SP621EEffect(
-        name: "Blue-Yellow Wave",
         id: 0x40,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.blue, .yellow],
     )
     public static let blueCyanWave = SP621EEffect(
-        name: "Blue-Cyan Wave",
         id: 0x41,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.blue, .cyan],
     )
     public static let bluePurpleWave = SP621EEffect(
-        name: "Blue-Purple Wave",
         id: 0x42,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.blue, .purple],
     )
     public static let blueWhiteWave = SP621EEffect(
-        name: "Blue-White Wave",
         id: 0x43,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.blue, .white],
     )
     public static let yellowCyanWave = SP621EEffect(
-        name: "Yellow-Cyan Wave",
         id: 0x44,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.yellow, .cyan],
     )
     public static let yellowPurpleWave = SP621EEffect(
-        name: "Yellow-Purple Wave",
         id: 0x45,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.yellow, .purple],
     )
     public static let yellowWhiteWave = SP621EEffect(
-        name: "Yellow-White Wave",
         id: 0x46,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.yellow, .white],
     )
     public static let cyanPurpleWave = SP621EEffect(
-        name: "Cyan-Purple Wave",
         id: 0x47,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.cyan, .purple],
     )
     public static let cyanWhiteWave = SP621EEffect(
-        name: "Cyan-White Wave",
         id: 0x48,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.cyan, .white],
     )
     public static let purpleWhiteWave = SP621EEffect(
-        name: "Purple-White Wave",
         id: 0x49,
-        type: .standard
+        type: .standard,
+        pattern: .wave,
+        palette: [.purple, .white],
     )
     public static let redStars = SP621EEffect(
-        name: "Red Stars",
         id: 0x4A,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.red],
     )
     public static let greenStars = SP621EEffect(
-        name: "Green Stars",
         id: 0x4B,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.green],
     )
     public static let blueStars = SP621EEffect(
-        name: "Blue Stars",
         id: 0x4C,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.blue],
     )
     public static let yellowStars = SP621EEffect(
-        name: "Yellow Stars",
         id: 0x4D,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.yellow],
     )
     public static let cyanStars = SP621EEffect(
-        name: "Cyan Stars",
         id: 0x4E,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.cyan],
     )
     public static let purpleStars = SP621EEffect(
-        name: "Purple Stars",
         id: 0x4F,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.purple],
     )
     public static let whiteStars = SP621EEffect(
-        name: "White Stars",
         id: 0x50,
-        type: .standard
+        type: .standard,
+        pattern: .stars,
+        palette: [.white],
     )
     public static let redTwinklingStars = SP621EEffect(
-        name: "Red Twinkling Stars",
         id: 0x51,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.red],
     )
     public static let greenTwinklingStars = SP621EEffect(
-        name: "Green Twinkling Stars",
         id: 0x52,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.green],
     )
     public static let blueTwinklingStars = SP621EEffect(
-        name: "Blue Twinkling Stars",
         id: 0x53,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.blue],
     )
     public static let yellowTwinklingStars = SP621EEffect(
-        name: "Yellow Twinkling Stars",
         id: 0x54,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.yellow],
     )
     public static let cyanTwinklingStars = SP621EEffect(
-        name: "Cyan Twinkling Stars",
         id: 0x55,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.cyan],
     )
     public static let purpleTwinklingStars = SP621EEffect(
-        name: "Purple Twinkling Stars",
         id: 0x56,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.purple],
     )
     public static let redWhiteTwinklingStars = SP621EEffect(
-        name: "Red-White Twinkling Stars",
         id: 0x57,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.red, .white],
     )
     public static let greenWhiteTwinklingStars = SP621EEffect(
-        name: "Green-White Twinkling Stars",
         id: 0x58,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.green, .white],
     )
     public static let blueWhiteTwinklingStars = SP621EEffect(
-        name: "Blue-White Twinkling Stars",
         id: 0x59,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.blue, .white],
     )
     public static let yellowWhiteTwinklingStars = SP621EEffect(
-        name: "Yellow-White Twinkling Stars",
         id: 0x5A,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.yellow, .white],
     )
     public static let cyanWhiteTwinklingStars = SP621EEffect(
-        name: "Cyan-White Twinkling Stars",
         id: 0x5B,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.cyan, .white],
     )
     public static let purpleWhiteTwinklingStars = SP621EEffect(
-        name: "Purple-White Twinkling Stars",
         id: 0x5C,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.purple, .white],
     )
     public static let whiteTwinklingStars = SP621EEffect(
-        name: "White Twinkling Stars",
         id: 0x5D,
-        type: .standard
+        type: .standard,
+        pattern: .twinklingStars,
+        palette: [.white],
     )
     public static let redBreath = SP621EEffect(
-        name: "Red Breath",
         id: 0x5E,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.red],
     )
     public static let greenBreath = SP621EEffect(
-        name: "Green Breath",
         id: 0x5F,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.green],
     )
     public static let blueBreath = SP621EEffect(
-        name: "Blue Breath",
         id: 0x60,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.blue],
     )
     public static let yellowBreath = SP621EEffect(
-        name: "Yellow Breath",
         id: 0x61,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.yellow],
     )
     public static let cyanBreath = SP621EEffect(
-        name: "Cyan Breath",
         id: 0x62,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.cyan],
     )
     public static let purpleBreath = SP621EEffect(
-        name: "Purple Breath",
         id: 0x63,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.purple],
     )
     public static let whiteBreath = SP621EEffect(
-        name: "White Breath",
         id: 0x64,
-        type: .standard
+        type: .standard,
+        pattern: .breath,
+        palette: [.white],
     )
     public static let redStack = SP621EEffect(
-        name: "Red Stack",
         id: 0x65,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.red],
     )
     public static let greenStack = SP621EEffect(
-        name: "Green Stack",
         id: 0x66,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.green],
     )
     public static let blueStack = SP621EEffect(
-        name: "Blue Stack",
         id: 0x67,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.blue],
     )
     public static let yellowStack = SP621EEffect(
-        name: "Yellow Stack",
         id: 0x68,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.yellow],
     )
     public static let cyanStack = SP621EEffect(
-        name: "Cyan Stack",
         id: 0x69,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.cyan],
     )
     public static let purpleStack = SP621EEffect(
-        name: "Purple Stack",
         id: 0x6A,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.purple],
     )
     public static let whiteStack = SP621EEffect(
-        name: "White Stack",
         id: 0x6B,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.white],
     )
     public static let fullColorStack = SP621EEffect(
-        name: "Full Color Stack",
+        "Full Color Stack",
         id: 0x6C,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
     )
     public static let redGreenStack = SP621EEffect(
-        name: "Red-Green Stack",
         id: 0x6D,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.red, .green],
     )
     public static let greenBlueStack = SP621EEffect(
-        name: "Green-Blue Stack",
         id: 0x6E,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.green, .blue],
     )
     public static let blueYellowStack = SP621EEffect(
-        name: "Blue-Yellow Stack",
         id: 0x6F,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.blue, .yellow],
     )
     public static let yellowCyanStack = SP621EEffect(
-        name: "Yellow-Cyan Stack",
         id: 0x70,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.yellow, .cyan],
     )
     public static let cyanPurpleStack = SP621EEffect(
-        name: "Cyan-Purple Stack",
         id: 0x71,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.cyan, .purple],
     )
     public static let purpleWhiteStack = SP621EEffect(
-        name: "Purple-White Stack",
         id: 0x72,
-        type: .standard
+        type: .standard,
+        pattern: .stack,
+        palette: [.purple, .white],
     )
     public static let redWhiteBlueSnake = SP621EEffect(
-        name: "Red-White-Blue Snake",
         id: 0x73,
-        type: .standard
+        type: .standard,
+        pattern: .snake,
+        palette: [.red, .white, .blue],
     )
     public static let greenWhiteYellowSnake = SP621EEffect(
-        name: "Green-White-Yellow Snake",
         id: 0x74,
-        type: .standard
+        type: .standard,
+        pattern: .snake,
+        palette: [.green, .white, .yellow],
     )
     public static let redGreenWhiteSnake = SP621EEffect(
-        name: "Red-Green-White Snake",
         id: 0x75,
-        type: .standard
+        type: .standard,
+        pattern: .snake,
+        palette: [.red, .green, .white],
     )
     public static let redYellowSnake = SP621EEffect(
-        name: "Red-Yellow Snake",
         id: 0x76,
-        type: .standard
+        type: .standard,
+        pattern: .snake,
+        palette: [.red, .yellow],
     )
     public static let redWhiteSnake = SP621EEffect(
-        name: "Red-White Snake",
         id: 0x77,
-        type: .standard
+        type: .standard,
+        pattern: .snake,
+        palette: [.red, .white],
     )
     public static let greenWhiteSnake = SP621EEffect(
-        name: "Green-White Snake",
         id: 0x78,
-        type: .standard
+        type: .standard,
+        pattern: .snake,
+        palette: [.green, .white],
     )
     public static let redCometSpin = SP621EEffect(
-        name: "Red Comet Spin",
         id: 0x79,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.red],
     )
     public static let greenCometSpin = SP621EEffect(
-        name: "Green Comet Spin",
         id: 0x7A,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.green],
     )
     public static let blueCometSpin = SP621EEffect(
-        name: "Blue Comet Spin",
         id: 0x7B,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.blue],
     )
     public static let yellowCometSpin = SP621EEffect(
-        name: "Yellow Comet Spin",
         id: 0x7C,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.yellow],
     )
     public static let cyanCometSpin = SP621EEffect(
-        name: "Cyan Comet Spin",
         id: 0x7D,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.cyan],
     )
     public static let purpleCometSpin = SP621EEffect(
-        name: "Purple Comet Spin",
         id: 0x7E,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.purple],
     )
     public static let whiteCometSpin = SP621EEffect(
-        name: "White Comet Spin",
         id: 0x7F,
-        type: .standard
+        type: .standard,
+        pattern: .cometSpin,
+        palette: [.white],
     )
     public static let redDotSpin = SP621EEffect(
-        name: "Red Dot Spin",
         id: 0x80,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.red],
     )
     public static let greenDotSpin = SP621EEffect(
-        name: "Green Dot Spin",
         id: 0x81,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.green],
     )
     public static let blueDotSpin = SP621EEffect(
-        name: "Blue Dot Spin",
         id: 0x82,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.blue],
     )
     public static let yellowDotSpin = SP621EEffect(
-        name: "Yellow Dot Spin",
         id: 0x83,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.yellow],
     )
     public static let cyanDotSpin = SP621EEffect(
-        name: "Cyan Dot Spin",
         id: 0x84,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.cyan],
     )
     public static let purpleDotSpin = SP621EEffect(
-        name: "Purple Dot Spin",
         id: 0x85,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.purple],
     )
     public static let whiteDotSpin = SP621EEffect(
-        name: "White Dot Spin",
         id: 0x86,
-        type: .standard
+        type: .standard,
+        pattern: .dotSpin,
+        palette: [.white],
     )
     public static let redSegmentSpin = SP621EEffect(
-        name: "Red Segment Spin",
         id: 0x87,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.red],
     )
     public static let greenSegmentSpin = SP621EEffect(
-        name: "Green Segment Spin",
         id: 0x88,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.green],
     )
     public static let blueSegmentSpin = SP621EEffect(
-        name: "Blue Segment Spin",
         id: 0x89,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.blue],
     )
     public static let yellowSegmentSpin = SP621EEffect(
-        name: "Yellow Segment Spin",
         id: 0x8A,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.yellow],
     )
     public static let cyanSegmentSpin = SP621EEffect(
-        name: "Cyan Segment Spin",
         id: 0x8B,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.cyan],
     )
     public static let purpleSegmentSpin = SP621EEffect(
-        name: "Purple Segment Spin",
         id: 0x8C,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.purple],
     )
     public static let whiteSegmentSpin = SP621EEffect(
-        name: "White Segment Spin",
         id: 0x8D,
-        type: .standard
+        type: .standard,
+        pattern: .segmentSpin,
+        palette: [.white],
     )
     public static let gradient = SP621EEffect(
-        name: "Gradient",
+        "Gradient",
         id: 0x8E,
-        type: .standard
+        type: .standard,
+        pattern: .rainbow,
     )
     
     // Audio Effects: react to microphone audio
     public static let fullColorRhythmSpectrum = SP621EEffect(
-        name: "Rhythm Spectrum (Multicolor)",
+        "Rhythm Spectrum (Multicolor)",
         id: 0xC9,
         type: .audio
     )
     public static let singleColorRhythmSpectrum = SP621EEffect(
-        name: "Rhythm Spectrum (Single Color)",
+        "Rhythm Spectrum (Single Color)",
         id: 0xCA,
         type: .audio
     )
     public static let fullColorRhythmStars = SP621EEffect(
-        name: "Rhythm Stars (Multicolor)",
+        "Rhythm Stars (Multicolor)",
         id: 0xCB,
         type: .audio
     )
     public static let singleColorRhythmStars = SP621EEffect(
-        name: "Rhythm Stars (Single Color)",
+        "Rhythm Stars (Single Color)",
         id: 0xCC,
         type: .audio
     )
     public static let gradientEnergy = SP621EEffect(
-        name: "Energy (Multicolor)",
+        "Energy (Multicolor)",
         id: 0xCD,
         type: .audio
     )
     public static let singleColorEnergy = SP621EEffect(
-        name: "Energy (Single Color)",
+        "Energy (Single Color)",
         id: 0xCE,
         type: .audio
     )
     public static let gradientPulse = SP621EEffect(
-        name: "Pulse (Multicolor)",
+        "Pulse (Multicolor)",
         id: 0xCF,
         type: .audio
     )
     public static let singleColorPulse = SP621EEffect(
-        name: "Pulse (Single Color)",
+        "Pulse (Single Color)",
         id: 0xD0,
         type: .audio
     )
     public static let fullColorEjectionForward = SP621EEffect(
-        name: "Ejection Forward (Multicolor)",
+        "Ejection Forward (Multicolor)",
         id: 0xD1,
         type: .audio
     )
     public static let singleColorEjectionForward = SP621EEffect(
-        name: "Ejection Forward (Single Color)",
+        "Ejection Forward (Single Color)",
         id: 0xD2,
         type: .audio
     )
     public static let fullColorEjectionBackward = SP621EEffect(
-        name: "Ejection Backward (Multicolor)",
+        "Ejection Backward (Multicolor)",
         id: 0xD3,
         type: .audio
     )
     public static let singleColorEjectionBackward = SP621EEffect(
-        name: "Ejection Backward (Single Color)",
+        "Ejection Backward (Single Color)",
         id: 0xD4,
         type: .audio
     )
     public static let fullColorVUMeter = SP621EEffect(
-        name: "VU Meter (Multicolor)",
+        "VU Meter (Multicolor)",
         id: 0xD5,
         type: .audio
     )
     public static let singleColorVUMeter = SP621EEffect(
-        name: "VU Meter (Single Color)",
+        "VU Meter (Single Color)",
         id: 0xD6,
         type: .audio
     )
     public static let redWhiteBlue = SP621EEffect(
-        name: "Red, White, and Blue",
+        "Red, White, and Blue",
         id: 0xD7,
         type: .audio
     )
     public static let festive = SP621EEffect(
-        name: "Festive",
+        "Festive",
         id: 0xD8,
         type: .audio
     )
     public static let flames = SP621EEffect(
-        name: "Flames",
+        "Flames",
         id: 0xD9,
         type: .audio
     )
     public static let party = SP621EEffect(
-        name: "Party",
+        "Party",
         id: 0xDA,
         type: .audio
     )
@@ -1003,4 +1273,24 @@ extension SP621EEffect {
     private static let allEffects: [UInt8: SP621EEffect] = Dictionary(
         uniqueKeysWithValues: combined.map { ($0.id, $0) }
     )
+}
+
+extension SP621EEffect: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case type
+    }
+    
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UInt8.self, forKey: .id)
+        let type = try container.decodeIfPresent(EffectType.self, forKey: .type) ?? .standard
+        self.init(id: id, type: type)
+    }
+    
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+    }
 }
